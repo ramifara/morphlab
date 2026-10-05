@@ -129,7 +129,7 @@ $('#app').innerHTML = `
   <aside class="hud dock dock-right panel" id="dock-right" data-open="${docks.right}" aria-label="Specimens">
     <div class="dock-head"><span class="dock-title">${icon('layers')} Specimens</span><span class="dock-note">1–${presets.length}</span><button class="icon-button small dock-close" data-close="right" aria-label="Close panel">${icon('close')}</button></div>
     <div class="dock-scroll">
-      <div class="presets">${presets.map((p, i) => `<button class="preset" data-preset="${i}" aria-pressed="false"><span class="preset-art" style="background-image:url('/presets/${p.name.toLowerCase()}.svg')"></span><span class="preset-info"><span class="preset-name">${p.name}</span><small>${p.subtitle}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><span class="preset-n">0${i + 1}</span></button>`).join('')}</div>
+      <div class="presets">${presets.map((p, i) => `<button class="preset" data-preset="${i}" aria-pressed="false"><span class="preset-art" style="background-image:url('${p.art ?? `/presets/${p.name.toLowerCase()}.svg`}')"></span><span class="preset-info"><span class="preset-name">${p.name}</span><small>${p.subtitle}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><span class="preset-n">0${i + 1}</span></button>`).join('')}</div>
       <button class="surprise-button" id="surprise">${icon('shuffle')} Surprise me <kbd>S</kbd></button>
       <p class="dock-footnote">The field wraps at its edges, so you can move around it forever. Some recipes settle into a flat color. That is a valid equilibrium. Reseed or pick a specimen to grow again.</p>
     </div>
@@ -235,7 +235,7 @@ function setPreset(index: number, randomSeed = false) {
   updateSliders(); updateSpecimenLabel();
   if (preset.look) {
     // A specimen can carry the look that makes it read well, not just the chemistry.
-    const { look } = preset; setColors(look.background, look.foreground);
+    const { look } = preset; if (look.background && look.foreground) setColors(look.background, look.foreground);
     if (look.threshold !== undefined) { threshold = look.threshold; const el = $<HTMLInputElement>('#threshold'); el.value = String(threshold); updateRange(el); updateThresholdLabel(); }
     if (look.speed !== undefined) { speed = look.speed; const el = $<HTMLInputElement>('#speed'); el.value = String(speed); updateRange(el); updateSpeedLabel(); }
     if (look.zoom !== undefined) { setZoom(look.zoom); setPan(0, 0); }

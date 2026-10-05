@@ -2,8 +2,8 @@ export interface Parameters { feed: number; kill: number; diffusionA: number; di
 export interface Brush { x: number; y: number; radius: number; mode: number }
 export interface Palette { name: string; background: string; foreground: string }
 export interface View { x: number; y: number }
-export interface Look { background: string; foreground: string; threshold?: number; speed?: number; zoom?: number }
-export interface Preset { name: string; subtitle: string; feed: number; kill: number; seed: 'scatter' | 'center'; look?: Look }
+export interface Look { background?: string; foreground?: string; threshold?: number; speed?: number; zoom?: number }
+export interface Preset { name: string; subtitle: string; feed: number; kill: number; seed: 'scatter' | 'center'; look?: Look; art?: string }
 export const presets: Preset[] = [
   { name: 'Coral', subtitle: 'Organic & branching', feed: .0545, kill: .062, seed: 'scatter' },
   { name: 'Fingerprint', subtitle: 'A little human', feed: .037, kill: .060, seed: 'scatter' },
@@ -11,7 +11,7 @@ export const presets: Preset[] = [
   { name: 'Spots', subtitle: 'Wild by nature', feed: .03, kill: .062, seed: 'scatter' },
   { name: 'Worms', subtitle: 'Beautifully restless', feed: .062, kill: .0609, seed: 'scatter' },
   { name: 'Bloom', subtitle: 'Start something small', feed: .025, kill: .055, seed: 'center' },
-  { name: 'Pulse', subtitle: 'Alive. Loops forever.', feed: .0329, kill: .0556, seed: 'scatter', look: { background: '#29191a', foreground: '#ff936d', threshold: .3, speed: 24, zoom: .49 } },
+  { name: 'Pulse', subtitle: 'Alive. Loops forever.', feed: .0329, kill: .0556, seed: 'scatter', look: { threshold: .3, speed: 24, zoom: .49 }, art: '/presets/pulse.png' },
 ];
 export const palettes: Palette[] = [
   { name: 'Ivory', background: '#20221d', foreground: '#e3e5cc' },
