@@ -245,7 +245,7 @@ dialog strong { color: var(--text); font-weight: 600; }
   .brand-text, .specimen-id { display: none; }
   .brand { padding: 0 9px; }
   .chip.group .text-button span { display: none; }
-  #fullscreen, #about, .chip.group .divider:last-of-type { display: none; }
+  #fullscreen, #about, .chip.group .divider:first-of-type { display: none; }
   .dock { top: auto; left: var(--pad); right: var(--pad); width: auto; max-height: min(52dvh, 460px); bottom: calc(var(--pad) + var(--bottom-h) + 10px); }
   .dock-left[data-open="false"], .dock-right[data-open="false"], .app[data-hud="off"] .dock { transform: translateY(14px); }
   .dock-close { display: inline-flex; }

@@ -76,12 +76,10 @@ $('#app').innerHTML = `
 
   <header class="hud hud-top">
     <a href="/" class="chip brand" aria-label="Morph Lab home"><span class="brand-mark">${mark}</span><span class="brand-text">MORPH<span>LAB</span></span></a>
+    <div class="chip group"><button class="icon-button" id="toggle-left" title="Recipe panel · [" aria-label="Toggle recipe panel" aria-pressed="${docks.left}" aria-controls="dock-left">${icon('panelLeft')}</button></div>
     <div class="chip specimen"><span class="live-dot"></span><span id="specimen-name">Coral</span><span class="specimen-id" id="specimen-id">/ 001</span></div>
     <div class="hud-spacer"></div>
     <div class="chip group">
-      <button class="icon-button" id="toggle-left" title="Recipe panel · [" aria-label="Toggle recipe panel" aria-pressed="${docks.left}" aria-controls="dock-left">${icon('panelLeft')}</button>
-      <button class="icon-button" id="toggle-right" title="Specimens panel · ]" aria-label="Toggle specimens panel" aria-pressed="${docks.right}" aria-controls="dock-right">${icon('panelRight')}</button>
-      <span class="divider"></span>
       <div class="export-wrap">
         <button id="export-toggle" class="text-button" aria-expanded="false" aria-controls="export-menu">${icon('download')}<span>Export</span></button>
         <div id="export-menu" class="menu panel" hidden>
@@ -100,6 +98,8 @@ $('#app').innerHTML = `
       <button class="icon-button" id="fullscreen" title="Fullscreen · F" aria-label="Toggle fullscreen">${icon('expand')}</button>
       <button class="icon-button" id="about" title="The science" aria-label="About the model">${icon('info')}</button>
       <button class="icon-button" id="hud-hide" title="Hide interface · H" aria-label="Hide interface">${icon('eyeOff')}</button>
+      <span class="divider"></span>
+      <button class="icon-button" id="toggle-right" title="Specimens panel · ]" aria-label="Toggle specimens panel" aria-pressed="${docks.right}" aria-controls="dock-right">${icon('panelRight')}</button>
     </div>
   </header>
 
