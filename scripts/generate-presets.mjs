@@ -2,7 +2,7 @@
 import { contours } from 'd3-contour';
 import { writeFileSync } from 'node:fs';
 // name, feed, kill, and optionally the contour threshold and colors that specimen carries.
-const recipes = [['coral',.0545,.062],['fingerprint',.037,.060],['mitosis',.0367,.0649],['spots',.03,.062],['worms',.062,.0609],['bloom',.025,.055],['pulse',.0329,.0556,.19,'#29191a','#ff936d']];
+const recipes = [['coral',.0545,.062],['fingerprint',.037,.060],['mitosis',.0367,.0649],['spots',.03,.062],['worms',.062,.0609],['bloom',.025,.055],['pulse',.0329,.0556,.22,'#29191a','#ff936d']];
 const w = 112, h = 64;
 for (const [name,feed,kill,threshold=.19,bg='#20221d',fg='#d6dbbe'] of recipes) {
   let a = new Float32Array(w*h).fill(1), b = new Float32Array(w*h), na = a.slice(), nb = b.slice();
