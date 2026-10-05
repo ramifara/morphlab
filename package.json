@@ -16,6 +16,7 @@
   "devDependencies": {
     "@types/d3-contour": "^3.0.6",
     "@webgpu/types": "^0.1.64",
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
     "vitest": "^4.1.11"

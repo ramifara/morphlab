@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A tiny localStorage for Node so the persist middleware has somewhere to write.
 const memory = new Map<string, string>();
@@ -37,5 +37,24 @@ describe('preset library', () => {
     const store = createAppStore();
     store.getState().savePreset({ ...draft, name: 'A' }); store.getState().savePreset({ ...draft, name: 'B' });
     expect(store.getState().saved.map(p => p.name)).toEqual(['B', 'A']);
+  });
+  it('rehydrates snapshot references alongside legacy recipe-only saves', () => {
+    const store = createAppStore();
+    store.getState().savePreset({ ...draft, name: 'Legacy' });
+    store.getState().savePreset({ ...draft, name: 'Live morph', snapshotId: 'field-1' });
+    expect(createAppStore().getState().saved.map(p => p.snapshotId)).toEqual(['field-1', undefined]);
+    expect(memory.get('morphlab')).not.toContain('Float32Array');
+  });
+  it('does not leave a phantom save in memory when localStorage is full', () => {
+    const store = createAppStore();
+    const saved = store.getState().savePreset({ ...draft, name: 'Existing' });
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('Quota exceeded'); });
+    try {
+      expect(() => store.getState().savePreset({ ...draft, name: 'Failed', snapshotId: 'field-2' })).toThrow('Quota exceeded');
+      expect(store.getState().saved).toEqual([saved]);
+      expect(() => store.getState().removePreset(saved.id)).toThrow('Quota exceeded');
+      expect(store.getState().saved).toEqual([saved]);
+    } finally { write.mockRestore(); }
+    expect(createAppStore().getState().saved).toEqual([saved]);
   });
 });

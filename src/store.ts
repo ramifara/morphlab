@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-/** A recipe the user saved. Chemistry, look, and seed replay deterministically; paintings are not stored. */
+/** Saved recipe metadata. New saves reference a full chemical field in IndexedDB. */
 export interface SavedPreset {
   id: string; name: string; createdAt: number;
   feed: number; kill: number; diffusionA: number; diffusionB: number;
@@ -9,6 +9,7 @@ export interface SavedPreset {
   seed: number; seedMode: 'scatter' | 'center';
   /** Small data URL captured from the field when saved. */
   art?: string;
+  snapshotId?: string;
 }
 export type PresetDraft = Omit<SavedPreset, 'id' | 'createdAt'>;
 
@@ -25,15 +26,29 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? c
 
 export function createAppStore(defaults: Partial<Pick<State, 'hud' | 'dockLeft' | 'dockRight'>> = {}) {
   return createStore<State>()(persist(
-    set => ({
+    (set, get) => ({
       saved: [],
       hud: true, dockLeft: true, dockRight: true, ...defaults,
       savePreset(draft) {
         const preset: SavedPreset = { ...draft, id: newId(), createdAt: Date.now() };
-        set(s => ({ saved: [preset, ...s.saved] })); return preset;
+        const previous = get().saved;
+        try { set({ saved: [preset, ...previous] }); }
+        catch (error) {
+          // Persist writes after updating memory. Roll back a failed write too.
+          try { set({ saved: previous }); } catch { /* Memory is already restored. */ }
+          throw error;
+        }
+        return preset;
       },
       updatePreset(id, draft) { set(s => ({ saved: s.saved.map(p => p.id === id ? { ...p, ...draft } : p) })); },
-      removePreset(id) { set(s => ({ saved: s.saved.filter(p => p.id !== id) })); },
+      removePreset(id) {
+        const previous = get().saved;
+        try { set({ saved: previous.filter(p => p.id !== id) }); }
+        catch (error) {
+          try { set({ saved: previous }); } catch { /* Memory is already restored. */ }
+          throw error;
+        }
+      },
       setUI(ui) { set(ui); },
     }),
     {

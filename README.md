@@ -28,9 +28,10 @@ The canvas fills the window. Everything else floats over it and can be hidden.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
-- **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current chemistry, colors, weight, speed, and seed under a name, with a thumbnail of the field. Saved recipes live in your browser's local storage through a persisted zustand store, and they replay from the seed, so paintings are not kept.
+- **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current morph under a name, including live knob adjustments and painted changes, plus the recipe, colors, weight, speed, seed, zoom, and position. The field is captured when you open Save current. Loading restores that exact field paused; press play to continue growing. Full-precision chemical fields live in your browser's IndexedDB, with recipe metadata and thumbnails in local storage. Older recipe-only saves still regrow from their seeds.
 - Press **H** to hide the whole interface and watch the pattern. Press **[** or **]** to toggle a single panel. Panel state is remembered.
 - Press **?** for all shortcuts.
+- Canvas shortcuts also work while a button, slider, or dropdown has focus. Space plays or pauses and arrow keys move the view. Text fields and dialogs keep their normal keys; use arrow keys inside an exact-value field or scroll over a slider to fine-tune it.
 
 Some parameter combinations produce a uniform field. That is a valid equilibrium. Choose a specimen or reseed to grow another pattern.
 
@@ -41,7 +42,7 @@ The simulation uses the Gray–Scott equations on a 512 × 320 periodic grid. A 
 - **WebGPU:** WGSL compute shaders alternate between two storage buffers. A fragment shader interpolates the field and applies the palette.
 - **WebGL 2:** GLSL fragment shaders alternate between two RG32F framebuffer textures. This requires `EXT_color_buffer_float`.
 
-Simulation and canvas rendering stay on the GPU. Only seed creation and export processing use the CPU. Changing engines preserves the current chemical field when the old device is still readable. The view preserves pattern proportions and crops to fit its container; zoom and cropping do not change the chemistry.
+Simulation and canvas rendering stay on the GPU. Seed creation, saving and restoring versions, and export processing use the CPU. Changing engines preserves the current chemical field when the old device is still readable. The view preserves pattern proportions and crops to fit its container; zoom and cropping do not change the chemistry.
 
 The presets start with a short accelerated growth phase. Reseed starts from fresh seeds so you can watch the full evolution. Browser visibility pauses GPU submissions.
 

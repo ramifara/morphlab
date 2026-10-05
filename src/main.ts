@@ -4,6 +4,7 @@ import { palettes, presets, makeSeed, idleBrush, type Parameters, type Brush, ty
 import { WebGPUEngine, WebGLEngine, type Engine } from './engine';
 import { download, fieldToPNG, fieldToSVG, fieldToThumbnail } from './export';
 import { createAppStore, type SavedPreset } from './store';
+import { loadSnapshot, saveSnapshot, removeSnapshot, type MorphSnapshot } from './snapshots';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const $$ = <T extends HTMLElement = HTMLElement>(selector: string) => Array.from(document.querySelectorAll<T>(selector));
@@ -15,6 +16,7 @@ let params: Parameters = { feed: presets[0].feed, kill: presets[0].kill, diffusi
 let presetIndex = 0, paletteIndex = 0, palette: Palette = { ...palettes[0] }, seed = 42, running = true, speed = 16, threshold = .19, zoom = 1;
 const pan: View = { x: 0, y: 0 };
 let engine: Engine | null = null, iterations = 0, warmup = 0, switching = false, drawing = false, panning = false, tool: Tool = 'brush', brushSize = 14;
+let loadRevision = 0;
 let brush: Brush = { ...idleBrush }, pendingBrush: Brush | null = null, renderNeeded = true, exporting = false;
 
 // ---------- URL state (share links and embeds) ----------
@@ -131,7 +133,7 @@ $('#app').innerHTML = `
     <div class="dock-scroll">
       <div class="presets">${presets.map((p, i) => `<button class="preset" data-preset="${i}" aria-pressed="false"><span class="preset-art" style="background-image:url('${p.art ?? `/presets/${p.name.toLowerCase()}.svg`}')"></span><span class="preset-info"><span class="preset-name">${p.name}</span><small>${p.subtitle}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><span class="preset-n">0${i + 1}</span></button>`).join('')}</div>
       <button class="surprise-button" id="surprise">${icon('shuffle')} Surprise me <kbd>S</kbd></button>
-      <div class="saved-head"><span class="saved-title">${icon('bookmark')} Saved <span class="saved-count" id="saved-count"></span></span><button class="text-button small" id="save-preset" title="Save current recipe · ⌘S">${icon('plus')}<span>Save current</span></button></div>
+      <div class="saved-head"><span class="saved-title">${icon('bookmark')} Saved <span class="saved-count" id="saved-count"></span></span><button class="text-button small" id="save-preset" title="Save current version · ⌘S">${icon('plus')}<span>Save current</span></button></div>
       <div class="presets saved" id="saved-list"></div>
       <p class="dock-footnote">The field wraps at its edges, so you can move around it forever. Some recipes settle into a flat color. That is a valid equilibrium. Reseed or pick a specimen to grow again.</p>
     </div>
@@ -231,6 +233,7 @@ for (const key of Object.keys(params) as (keyof Parameters)[]) $(`#${key}`).addE
 });
 
 function reseed(prepare = false) {
+  loadRevision++;
   if (!engine) return;
   engine.seed(makeSeed(WIDTH, HEIGHT, seed, presets[presetIndex].seed)); iterations = 0; warmup = prepare ? 1200 : 0; renderNeeded = true;
 }
@@ -373,6 +376,7 @@ new ResizeObserver(() => sizeCanvas($<HTMLCanvasElement>('#simulation'))).observ
 // ---------- Engine lifecycle ----------
 async function initialize(backend = 'auto') {
   if (switching) return;
+  loadRevision++;
   switching = true; $<HTMLSelectElement>('#backend').disabled = true; $('#loading').hidden = false; $('#loading-text').textContent = 'Waking up the chemistry…';
   let previous: Float32Array | undefined;
   try { previous = await engine?.read(); } catch { /* The old device may already be lost. */ }
@@ -466,35 +470,78 @@ function renderSaved() {
     : `<p class="saved-empty">Nothing saved yet. Tune a recipe you like, then save it to come back later.</p>`;
   updateSpecimenLabel();
 }
-function applySaved(p: SavedPreset) {
+async function applySaved(p: SavedPreset) {
+  if (!engine || switching) { toast('Wait for the simulation to be ready, then try again.'); return; }
+  const target = engine, revision = ++loadRevision;
+  let snapshot: MorphSnapshot | undefined;
+  try { if (p.snapshotId) snapshot = await loadSnapshot(p.snapshotId, WIDTH, HEIGHT); }
+  catch (error) { if (revision === loadRevision) { console.error(error); toast('Could not load the saved morph state. Your current pattern is unchanged.'); } return; }
+  // A later selection, reseed, deletion, or engine switch wins over this read.
+  if (revision !== loadRevision || engine !== target || switching) return;
+  target.seed(snapshot?.field ?? makeSeed(WIDTH, HEIGHT, p.seed, p.seedMode));
   params = { feed: p.feed, kill: p.kill, diffusionA: p.diffusionA, diffusionB: p.diffusionB }; seed = p.seed;
   presetIndex = Math.max(0, presets.findIndex(x => x.seed === p.seedMode));
   threshold = p.threshold; speed = p.speed;
   const t = $<HTMLInputElement>('#threshold'); t.value = String(threshold); updateRange(t); updateThresholdLabel();
   const s = $<HTMLInputElement>('#speed'); s.value = String(speed); updateRange(s); updateSpeedLabel();
   updateSliders(); setColors(p.background, p.foreground);
-  if (engine) { engine.seed(makeSeed(WIDTH, HEIGHT, seed, p.seedMode)); iterations = 0; warmup = 1200; renderNeeded = true; }
-  setRunning(true); toast(`${p.name} loaded.`);
+  iterations = snapshot?.iterations ?? 0; warmup = snapshot ? 0 : 1200;
+  drawing = false; pendingBrush = null; brush = { ...idleBrush };
+  if (snapshot) { setZoom(snapshot.zoom); setPan(snapshot.pan.x, snapshot.pan.y); }
+  $('#iteration-count').textContent = iterations.toLocaleString('en-US');
+  setRunning(!snapshot); renderNeeded = true;
+  toast(snapshot ? `${p.name} restored. Press play to keep growing.` : `${p.name} loaded from its seed.`);
+}
+async function deleteSaved(p: SavedPreset) {
+  loadRevision++;
+  try {
+    store.getState().removePreset(p.id);
+    // Metadata is removed first so a failed write never leaves a broken save.
+    if (p.snapshotId) { try { await removeSnapshot(p.snapshotId); } catch (error) { console.warn('Could not clean up the deleted field.', error); } }
+    toast(`${p.name} deleted.`);
+  } catch (error) { console.error(error); toast('Could not finish deleting the saved version. Please try again.'); }
 }
 $('#saved-list').addEventListener('click', e => {
   const target = e.target as HTMLElement; const del = target.closest<HTMLElement>('[data-delete]');
-  if (del) { const p = store.getState().saved.find(x => x.id === del.dataset.delete); store.getState().removePreset(del.dataset.delete!); if (p) toast(`${p.name} deleted.`); return; }
-  const card = target.closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) applySaved(p);
+  if (del) { const p = store.getState().saved.find(x => x.id === del.dataset.delete); if (p) void deleteSaved(p); return; }
+  const card = target.closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) void applySaved(p);
 });
-$('#saved-list').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { const card = (e.target as HTMLElement).closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) { e.preventDefault(); applySaved(p); } } });
+$('#saved-list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && !(e.target as HTMLElement).closest('button')) { const card = (e.target as HTMLElement).closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) { e.preventDefault(); void applySaved(p); } } });
 async function openSaveDialog() {
-  if (embed) return;
+  if (embed || dialog.open) return;
+  if (!engine || switching) { toast('Wait for the simulation to be ready, then save again.'); return; }
+  loadRevision++;
   const base = matchesPreset() ? presets[presetIndex].name : 'Experiment'; const count = store.getState().saved.length + 1;
-  showDialog(`<h2>Save this recipe</h2><p>Keeps the chemistry, colors, pattern weight, speed, and seed. Paintings are not stored; the field regrows from the seed.</p>
+  // Capture the field and settings together when Save current is clicked, before naming it.
+  const draft = { ...params, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed };
+  const view = { iterations, zoom, pan: { ...pan } };
+  const capture = engine.read().then(field => ({ version: 1 as const, width: WIDTH, height: HEIGHT, field, ...view }))
+    .catch(error => { console.error(error); return null; });
+  showDialog(`<h2>Save this version</h2><p>Keeps the current morph, including painted changes, along with the recipe and view. Restores paused so you can continue from this exact shape.</p>
     <label class="select-field" for="preset-name"><span>Name</span></label><input id="preset-name" class="text-input" type="text" maxlength="40" value="${escapeHTML(`${base} ${count}`)}" autocomplete="off" spellcheck="false"/>
     <div class="dialog-actions"><button class="primary-button" id="preset-save">${icon('bookmark')} Save</button><button class="text-button" id="preset-cancel">Cancel</button></div>`);
   const input = $<HTMLInputElement>('#preset-name'); input.focus(); input.select();
+  const button = $<HTMLButtonElement>('#preset-save');
+  let committing = false;
   const commit = async () => {
-    const name = input.value.trim() || `${base} ${count}`; dialog.close();
-    let art: string | undefined;
-    try { if (engine && !switching) art = fieldToThumbnail(await engine.read(), WIDTH, HEIGHT, threshold, palette); } catch { /* thumbnail is optional */ }
-    store.getState().savePreset({ name, ...params, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed, art });
-    toast(`${name} saved.`);
+    if (committing) return;
+    committing = true; button.disabled = true;
+    const name = input.value.trim() || `${base} ${count}`;
+    let snapshotId: string | undefined;
+    try {
+      const snapshot = await capture;
+      if (!snapshot) throw new Error('Could not read the current morph state.');
+      let art: string | undefined;
+      try { art = fieldToThumbnail(snapshot.field, WIDTH, HEIGHT, draft.threshold, { name: 'Saved', background: draft.background, foreground: draft.foreground }); } catch { /* Thumbnail is optional. */ }
+      snapshotId = await saveSnapshot(snapshot);
+      store.getState().savePreset({ name, ...draft, art, snapshotId });
+      // Do not close a different dialog opened while the write was pending.
+      if (input.isConnected) dialog.close();
+      toast(`${name} saved.`);
+    } catch (error) {
+      if (snapshotId) { try { await removeSnapshot(snapshotId); } catch { /* Best-effort cleanup after a failed metadata write. */ } }
+      console.error(error); toast('Could not save this version. Check available browser storage and try again.');
+    } finally { committing = false; button.disabled = false; }
   };
   $('#preset-save').addEventListener('click', () => void commit());
   $('#preset-cancel').addEventListener('click', () => dialog.close());
@@ -507,7 +554,7 @@ store.subscribe((s, prev) => { if (s.saved !== prev.saved) renderSaved(); });
 const science = `<h2>How does a pattern grow itself?</h2><p>Two imaginary chemicals spread across the canvas. A feeds the reaction; B consumes A and slowly fades. Tiny differences grow into stripes, spots, and winding branches.</p><div class="equations"><div>∂A/∂t = D<sub>A</sub>∇²A − AB² + f(1 − A)</div><div>∂B/∂t = D<sub>B</sub>∇²B + AB² − (k + f)B</div></div><p>This is the <strong>Gray–Scott reaction–diffusion model</strong>, a relative of the mechanism Alan Turing proposed for biological pattern formation. The field wraps at its edges like a torus, which is why you can move across it endlessly.</p><div class="field-tip"><strong>Try this</strong><p>Choose Coral, lower the feed rate by a few ten-thousandths, then paint into the canvas. Click any number to type an exact value, or scroll over a slider to nudge it one step at a time. Small changes can make a completely different world.</p></div><p class="source-note">Model and stencil reference: <a href="https://www.karlsims.com/rd.html" target="_blank" rel="noopener noreferrer">Karl Sims' reaction–diffusion tutorial ↗</a></p>`;
 const shortcutRows: [string, string][] = [
   ['Play / pause', 'Space'], ['Paint chemical B', 'B'], ['Eraser', 'E'], ['Move around', 'V'], ['Temporarily erase', 'Shift + drag'], ['Temporarily move', 'Alt + drag / middle button'],
-  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it / arrows'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Save recipe', '⌘ S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
+  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it'], ['Fine-tune a typed value', '↑ / ↓ while editing'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Save version', '⌘ S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
   ['Move', 'Scroll / arrows'], ['Zoom', '⌘ Scroll / − / +'], ['Reset view', '0'], ['Fullscreen', 'F'], ['Hide or show interface', 'H'], ['Recipe panel', '['], ['Specimens panel', ']'], ['Close menu or dialog', 'Esc'],
 ];
 const shortcuts = `<h2>Less clicking. More growing.</h2><div class="shortcut-list">${shortcutRows.map(([label, key]) => `<div><span>${label}</span><kbd>${key}</kbd></div>`).join('')}</div>`;
@@ -519,11 +566,14 @@ dialog.addEventListener('click', e => { if (e.target === dialog) { const r = dia
 
 // ---------- Keyboard ----------
 document.addEventListener('keydown', e => {
+  if (e.isComposing || e.defaultPrevented) return;
   if (e.key === 'Escape') closeExport();
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's' && !dialog.open) { e.preventDefault(); void openSaveDialog(); return; }
-  if (embed || (e.target as HTMLElement).closest('input,select,textarea,a') || dialog.open || e.metaKey || e.ctrlKey || e.altKey) return;
-  // Buttons keep Space and Enter for activation.
-  if ((e.target as HTMLElement).closest('button') && (e.code === 'Space' || e.key === 'Enter')) return;
+  if (embed || dialog.open) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); e.stopPropagation(); void openSaveDialog(); return; }
+  // Only text editing owns shortcut keys. Buttons, sliders, and selects keep
+  // focus for Tab / Enter, but cannot swallow canvas shortcuts after a click.
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  if (target?.isContentEditable || target?.closest('input:not([type="range"]):not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]),textarea,[role="textbox"]') || e.metaKey || e.ctrlKey || e.altKey) return;
   const key = e.key.toLowerCase(); const nudge = 24 / zoom;
   if (e.code === 'Space') { e.preventDefault(); setRunning(!running); }
   else if (key === 'b') setTool('brush'); else if (key === 'e') setTool('eraser'); else if (key === 'v') setTool('hand');
@@ -538,8 +588,10 @@ document.addEventListener('keydown', e => {
   else if (e.key === '?') showDialog(shortcuts);
   else if (/^[1-9]$/.test(e.key) && Number(e.key) <= presets.length) setPreset(Number(e.key) - 1);
   else return;
-  if (e.key.startsWith('Arrow')) e.preventDefault();
-});
+  // Capture before saved-card handlers and suppress native button activation,
+  // slider nudges, select typeahead, and page scrolling for handled shortcuts.
+  e.preventDefault(); e.stopPropagation();
+}, { capture: true });
 window.addEventListener('blur', () => { drawing = false; panning = false; pointers.clear(); pinch = null; brush = { ...idleBrush }; });
 
 // ---------- Boot ----------
