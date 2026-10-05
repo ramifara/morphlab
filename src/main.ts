@@ -2,7 +2,8 @@ import './style.css';
 import { icon, mark } from './icons';
 import { palettes, presets, makeSeed, idleBrush, type Parameters, type Brush, type Palette, type View } from './model';
 import { WebGPUEngine, WebGLEngine, type Engine } from './engine';
-import { download, fieldToPNG, fieldToSVG } from './export';
+import { download, fieldToPNG, fieldToSVG, fieldToThumbnail } from './export';
+import { createAppStore, type SavedPreset } from './store';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const $$ = <T extends HTMLElement = HTMLElement>(selector: string) => Array.from(document.querySelectorAll<T>(selector));
@@ -47,12 +48,11 @@ function embedSnippet(mode: 'inline' | 'background', paint: boolean) {
   return `<iframe src="${src}"\n  title="Morph Lab reaction–diffusion pattern"\n  style="${style}"\n  loading="lazy" allow="fullscreen"></iframe>`;
 }
 
-// ---------- Interface preferences ----------
-const stored = <T>(key: string, fallback: T): T => { try { const v = localStorage.getItem(`morph:${key}`); return v === null ? fallback : JSON.parse(v) as T; } catch { return fallback; } };
-const store = (key: string, value: unknown) => { try { localStorage.setItem(`morph:${key}`, JSON.stringify(value)); } catch { /* private mode */ } };
+// ---------- Persistent store: saved presets and interface preferences ----------
 const compact = () => matchMedia('(max-width: 820px)').matches;
-let hudVisible = !embed && stored('hud', true);
-const docks = { left: stored('dock-left', !compact()), right: stored('dock-right', !compact()) };
+const store = createAppStore({ dockLeft: !compact(), dockRight: !compact() });
+let hudVisible = !embed && store.getState().hud;
+const docks = { left: store.getState().dockLeft, right: store.getState().dockRight };
 
 // ---------- Markup ----------
 const digits = (id: string) => (id === 'feed' || id === 'kill' ? 4 : 3);
@@ -131,6 +131,8 @@ $('#app').innerHTML = `
     <div class="dock-scroll">
       <div class="presets">${presets.map((p, i) => `<button class="preset" data-preset="${i}" aria-pressed="false"><span class="preset-art" style="background-image:url('${p.art ?? `/presets/${p.name.toLowerCase()}.svg`}')"></span><span class="preset-info"><span class="preset-name">${p.name}</span><small>${p.subtitle}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><span class="preset-n">0${i + 1}</span></button>`).join('')}</div>
       <button class="surprise-button" id="surprise">${icon('shuffle')} Surprise me <kbd>S</kbd></button>
+      <div class="saved-head"><span class="saved-title">${icon('bookmark')} Saved <span class="saved-count" id="saved-count"></span></span><button class="text-button small" id="save-preset" title="Save current recipe · ⌘S">${icon('plus')}<span>Save current</span></button></div>
+      <div class="presets saved" id="saved-list"></div>
       <p class="dock-footnote">The field wraps at its edges, so you can move around it forever. Some recipes settle into a flat color. That is a valid equilibrium. Reseed or pick a specimen to grow again.</p>
     </div>
   </aside>
@@ -168,11 +170,11 @@ function toast(message: string) { $('#toast').textContent = message; $('#toast')
 
 function setHud(visible: boolean) {
   if (embed) return;
-  hudVisible = visible; root.dataset.hud = visible ? 'on' : 'off'; store('hud', visible);
+  hudVisible = visible; root.dataset.hud = visible ? 'on' : 'off'; store.getState().setUI({ hud: visible });
   if (!visible) closeExport();
 }
 function setDock(side: 'left' | 'right', open: boolean) {
-  docks[side] = open; store(`dock-${side}`, open);
+  docks[side] = open; store.getState().setUI(side === 'left' ? { dockLeft: open } : { dockRight: open });
   $(`#dock-${side}`).dataset.open = String(open); $(`#toggle-${side}`).setAttribute('aria-pressed', String(open));
   // One sheet at a time on small screens.
   if (open && compact()) { const other = side === 'left' ? 'right' : 'left'; if (docks[other]) setDock(other, false); }
@@ -185,10 +187,13 @@ $$('[data-close]').forEach(el => el.addEventListener('click', () => setDock(el.d
 
 // ---------- Parameters ----------
 const matchesPreset = () => { const p = presets[presetIndex]; return params.feed === p.feed && params.kill === p.kill && params.diffusionA === 1 && params.diffusionB === .5; };
+const matchesSaved = (p: SavedPreset) => p.feed === params.feed && p.kill === params.kill && p.diffusionA === params.diffusionA && p.diffusionB === params.diffusionB && p.background === palette.background && p.foreground === palette.foreground && p.threshold === threshold && p.speed === speed;
 function updateSpecimenLabel() {
-  const exact = matchesPreset();
-  $('#specimen-name').textContent = exact ? presets[presetIndex].name : 'Your experiment'; $('#specimen-id').textContent = exact ? `/ 00${presetIndex + 1}` : '/ ---';
-  $$('.preset').forEach(el => { const active = exact && Number(el.dataset.preset) === presetIndex; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
+  const exact = matchesPreset(); const saved = store.getState().saved.find(matchesSaved);
+  $('#specimen-name').textContent = exact ? presets[presetIndex].name : saved ? saved.name : 'Your experiment';
+  $('#specimen-id').textContent = exact ? `/ 00${presetIndex + 1}` : saved ? '/ saved' : '/ ---';
+  $$('.preset[data-preset]').forEach(el => { const active = exact && Number(el.dataset.preset) === presetIndex; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
+  $$('.preset[data-saved]').forEach(el => { const active = saved?.id === el.dataset.saved; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
 }
 function updateSliders() {
   for (const [key, value] of Object.entries(params)) { const el = $<HTMLInputElement>(`#${key}`); el.value = String(value); $<HTMLInputElement>(`#${key}-value`).value = value.toFixed(digits(key)); }
@@ -259,6 +264,7 @@ function applyPalette() {
   $('#swatch-bg').style.background = palette.background; $('#swatch-fg').style.background = palette.foreground;
   $('#color-bg-hex').textContent = palette.background; $('#color-fg-hex').textContent = palette.foreground;
   $$('.palette').forEach(el => { const active = Number(el.dataset.palette) === paletteIndex; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
+  updateSpecimenLabel();
 }
 function setPalette(index: number) { paletteIndex = (index + palettes.length) % palettes.length; palette = { ...palettes[paletteIndex] }; applyPalette(); }
 function setColors(background: string, foreground: string) {
@@ -269,9 +275,9 @@ $$('[data-palette]').forEach(el => el.addEventListener('click', () => setPalette
 $('#color-bg').addEventListener('input', e => setColors((e.target as HTMLInputElement).value, palette.foreground));
 $('#color-fg').addEventListener('input', e => setColors(palette.background, (e.target as HTMLInputElement).value));
 $('#swap-colors').addEventListener('click', () => setColors(palette.foreground, palette.background));
-$('#threshold').addEventListener('input', e => { threshold = Number((e.target as HTMLInputElement).value); updateThresholdLabel(); renderNeeded = true; });
+$('#threshold').addEventListener('input', e => { threshold = Number((e.target as HTMLInputElement).value); updateThresholdLabel(); renderNeeded = true; updateSpecimenLabel(); });
 const updateThresholdLabel = () => { $('#threshold-value').textContent = `${Math.round((.3 - threshold) / .22 * 100)}%`; };
-$('#speed').addEventListener('input', e => { speed = Number((e.target as HTMLInputElement).value); updateSpeedLabel(); });
+$('#speed').addEventListener('input', e => { speed = Number((e.target as HTMLInputElement).value); updateSpeedLabel(); updateSpecimenLabel(); });
 const updateSpeedLabel = () => { $('#speed-value').textContent = `${(speed / 16).toFixed(speed % 16 === 0 ? 0 : 1)}×`; };
 
 // ---------- Playback, tools, view ----------
@@ -451,11 +457,57 @@ $('#export-embed').addEventListener('click', () => {
   $('#embed-code').addEventListener('focus', e => (e.target as HTMLTextAreaElement).select());
 });
 
+// ---------- Saved presets ----------
+const escapeHTML = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+function renderSaved() {
+  const { saved } = store.getState();
+  $('#saved-count').textContent = saved.length ? String(saved.length) : '';
+  $('#saved-list').innerHTML = saved.length ? saved.map(p => `<div class="preset saved-card" data-saved="${p.id}" role="button" tabindex="0" aria-pressed="false"><span class="preset-art" style="${p.art ? `background-image:url('${p.art}')` : `background:linear-gradient(135deg,${p.background} 50%,${p.foreground} 50%)`}"></span><span class="preset-info"><span class="preset-name">${escapeHTML(p.name)}</span><small>${new Date(p.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><button class="icon-button small preset-delete" data-delete="${p.id}" title="Delete" aria-label="Delete ${escapeHTML(p.name)}">${icon('trash')}</button></div>`).join('')
+    : `<p class="saved-empty">Nothing saved yet. Tune a recipe you like, then save it to come back later.</p>`;
+  updateSpecimenLabel();
+}
+function applySaved(p: SavedPreset) {
+  params = { feed: p.feed, kill: p.kill, diffusionA: p.diffusionA, diffusionB: p.diffusionB }; seed = p.seed;
+  presetIndex = Math.max(0, presets.findIndex(x => x.seed === p.seedMode));
+  threshold = p.threshold; speed = p.speed;
+  const t = $<HTMLInputElement>('#threshold'); t.value = String(threshold); updateRange(t); updateThresholdLabel();
+  const s = $<HTMLInputElement>('#speed'); s.value = String(speed); updateRange(s); updateSpeedLabel();
+  updateSliders(); setColors(p.background, p.foreground);
+  if (engine) { engine.seed(makeSeed(WIDTH, HEIGHT, seed, p.seedMode)); iterations = 0; warmup = 1200; renderNeeded = true; }
+  setRunning(true); toast(`${p.name} loaded.`);
+}
+$('#saved-list').addEventListener('click', e => {
+  const target = e.target as HTMLElement; const del = target.closest<HTMLElement>('[data-delete]');
+  if (del) { const p = store.getState().saved.find(x => x.id === del.dataset.delete); store.getState().removePreset(del.dataset.delete!); if (p) toast(`${p.name} deleted.`); return; }
+  const card = target.closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) applySaved(p);
+});
+$('#saved-list').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { const card = (e.target as HTMLElement).closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) { e.preventDefault(); applySaved(p); } } });
+async function openSaveDialog() {
+  if (embed) return;
+  const base = matchesPreset() ? presets[presetIndex].name : 'Experiment'; const count = store.getState().saved.length + 1;
+  showDialog(`<h2>Save this recipe</h2><p>Keeps the chemistry, colors, pattern weight, speed, and seed. Paintings are not stored; the field regrows from the seed.</p>
+    <label class="select-field" for="preset-name"><span>Name</span></label><input id="preset-name" class="text-input" type="text" maxlength="40" value="${escapeHTML(`${base} ${count}`)}" autocomplete="off" spellcheck="false"/>
+    <div class="dialog-actions"><button class="primary-button" id="preset-save">${icon('bookmark')} Save</button><button class="text-button" id="preset-cancel">Cancel</button></div>`);
+  const input = $<HTMLInputElement>('#preset-name'); input.focus(); input.select();
+  const commit = async () => {
+    const name = input.value.trim() || `${base} ${count}`; dialog.close();
+    let art: string | undefined;
+    try { if (engine && !switching) art = fieldToThumbnail(await engine.read(), WIDTH, HEIGHT, threshold, palette); } catch { /* thumbnail is optional */ }
+    store.getState().savePreset({ name, ...params, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed, art });
+    toast(`${name} saved.`);
+  };
+  $('#preset-save').addEventListener('click', () => void commit());
+  $('#preset-cancel').addEventListener('click', () => dialog.close());
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); void commit(); } });
+}
+$('#save-preset').addEventListener('click', () => void openSaveDialog());
+store.subscribe((s, prev) => { if (s.saved !== prev.saved) renderSaved(); });
+
 // ---------- Dialogs ----------
 const science = `<h2>How does a pattern grow itself?</h2><p>Two imaginary chemicals spread across the canvas. A feeds the reaction; B consumes A and slowly fades. Tiny differences grow into stripes, spots, and winding branches.</p><div class="equations"><div>∂A/∂t = D<sub>A</sub>∇²A − AB² + f(1 − A)</div><div>∂B/∂t = D<sub>B</sub>∇²B + AB² − (k + f)B</div></div><p>This is the <strong>Gray–Scott reaction–diffusion model</strong>, a relative of the mechanism Alan Turing proposed for biological pattern formation. The field wraps at its edges like a torus, which is why you can move across it endlessly.</p><div class="field-tip"><strong>Try this</strong><p>Choose Coral, lower the feed rate by a few ten-thousandths, then paint into the canvas. Click any number to type an exact value, or scroll over a slider to nudge it one step at a time. Small changes can make a completely different world.</p></div><p class="source-note">Model and stencil reference: <a href="https://www.karlsims.com/rd.html" target="_blank" rel="noopener noreferrer">Karl Sims' reaction–diffusion tutorial ↗</a></p>`;
 const shortcutRows: [string, string][] = [
   ['Play / pause', 'Space'], ['Paint chemical B', 'B'], ['Eraser', 'E'], ['Move around', 'V'], ['Temporarily erase', 'Shift + drag'], ['Temporarily move', 'Alt + drag / middle button'],
-  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it / arrows'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
+  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it / arrows'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Save recipe', '⌘ S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
   ['Move', 'Scroll / arrows'], ['Zoom', '⌘ Scroll / − / +'], ['Reset view', '0'], ['Fullscreen', 'F'], ['Hide or show interface', 'H'], ['Recipe panel', '['], ['Specimens panel', ']'], ['Close menu or dialog', 'Esc'],
 ];
 const shortcuts = `<h2>Less clicking. More growing.</h2><div class="shortcut-list">${shortcutRows.map(([label, key]) => `<div><span>${label}</span><kbd>${key}</kbd></div>`).join('')}</div>`;
@@ -468,6 +520,7 @@ dialog.addEventListener('click', e => { if (e.target === dialog) { const r = dia
 // ---------- Keyboard ----------
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeExport();
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's' && !dialog.open) { e.preventDefault(); void openSaveDialog(); return; }
   if (embed || (e.target as HTMLElement).closest('input,select,textarea,a') || dialog.open || e.metaKey || e.ctrlKey || e.altKey) return;
   // Buttons keep Space and Enter for activation.
   if ((e.target as HTMLElement).closest('button') && (e.code === 'Space' || e.key === 'Enter')) return;
@@ -490,6 +543,6 @@ document.addEventListener('keydown', e => {
 window.addEventListener('blur', () => { drawing = false; panning = false; pointers.clear(); pinch = null; brush = { ...idleBrush }; });
 
 // ---------- Boot ----------
-applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); setTool('brush'); setZoom(zoom);
+renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); setTool('brush'); setZoom(zoom);
 if (embed && !interactive) $('#simulation').style.pointerEvents = 'none';
 void initialize(); requestAnimationFrame(frame);

@@ -50,9 +50,8 @@ export function fieldToSVG(data: Float32Array, width: number, height: number, th
   ].join('\n');
 }
 
-export async function fieldToPNG(data: Float32Array, width: number, height: number, threshold: number, palette: Palette, scale = 4): Promise<Blob> {
-  const canvas = document.createElement('canvas'); canvas.width = width * scale; canvas.height = height * scale;
-  const context = canvas.getContext('2d')!;
+/** Rasterize the field at grid resolution with the same soft threshold the canvas uses. */
+function rasterize(data: Float32Array, width: number, height: number, threshold: number, palette: Palette) {
   const small = document.createElement('canvas'); small.width = width; small.height = height;
   const source = small.getContext('2d')!; const pixels = source.createImageData(width, height);
   const bg = rgb(palette.background); const fg = rgb(palette.foreground);
@@ -61,8 +60,22 @@ export async function fieldToPNG(data: Float32Array, width: number, height: numb
     for (let c = 0; c < 3; c++) pixels.data[i * 4 + c] = Math.round((bg[c] + (fg[c] - bg[c]) * t) * 255);
     pixels.data[i * 4 + 3] = 255;
   }
-  source.putImageData(pixels, 0, 0); context.imageSmoothingQuality = 'high'; context.drawImage(small, 0, 0, canvas.width, canvas.height);
+  source.putImageData(pixels, 0, 0); return small;
+}
+function scaled(source: HTMLCanvasElement, width: number, height: number) {
+  const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d')!; context.imageSmoothingQuality = 'high'; context.drawImage(source, 0, 0, width, height); return canvas;
+}
+
+export async function fieldToPNG(data: Float32Array, width: number, height: number, threshold: number, palette: Palette, scale = 4): Promise<Blob> {
+  const canvas = scaled(rasterize(data, width, height, threshold, palette), width * scale, height * scale);
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
+}
+
+/** A small, compressed data URL of the field for preset cards. Roughly 5–15 KB. */
+export function fieldToThumbnail(data: Float32Array, width: number, height: number, threshold: number, palette: Palette, size = 224): string {
+  const canvas = scaled(rasterize(data, width, height, threshold, palette), size, Math.round(size * height / width));
+  return canvas.toDataURL('image/webp', .72);
 }
 
 export function download(blob: Blob, filename: string) {

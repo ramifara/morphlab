@@ -28,6 +28,7 @@ The canvas fills the window. Everything else floats over it and can be hidden.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
+- **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current chemistry, colors, weight, speed, and seed under a name, with a thumbnail of the field. Saved recipes live in your browser's local storage through a persisted zustand store, and they replay from the seed, so paintings are not kept.
 - Press **H** to hide the whole interface and watch the pattern. Press **[** or **]** to toggle a single panel. Panel state is remembered.
 - Press **?** for all shortcuts.
 
