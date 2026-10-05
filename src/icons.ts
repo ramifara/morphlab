@@ -1,0 +1,32 @@
+const paths: Record<string, string> = {
+  play: '<path d="m8 5 11 7-11 7V5Z"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  step: '<path d="m5 5 10 7-10 7V5ZM19 5v14"/>',
+  reset: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
+  shuffle: '<path d="m17 3 4 4-4 4M3 17l4-4m-4-6h4l10 10h4M3 7l4 4m6-4h8m-4 6 4 4-4 4"/>',
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  brush: '<path d="m14 6 4-4 4 4-10 10-4-4 6-6ZM8 12c-6-1-2 8-6 8 8 3 11-3 6-8Z"/>',
+  eraser: '<path d="m14 3 7 7-11 11H5l-4-4L14 3Zm-8 9 7 7M10 21h12"/>',
+  minus: '<path d="M5 12h14"/>',
+  plus: '<path d="M5 12h14M12 5v14"/>',
+  expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.1"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  spark: '<path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3 3-7Z"/>',
+  external: '<path d="M14 3h7v7m0-7L10 14M10 3H3v18h18v-7"/>',
+  panelLeft: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  panelRight: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="m3 3 18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.6 6.6C3.8 8.6 2 12 2 12s4 7 10 7c1.5 0 2.9-.4 4.1-1"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.6L3 15.2a2 2 0 0 1 2.9-2.8L8 14.5"/>',
+  swap: '<path d="M16 3l4 4-4 4M20 7H8M8 21l-4-4 4-4M4 17h12"/>',
+};
+export const icon = (name: string, cls = '') =>
+  `<svg class="icon ${cls}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+export const mark = `<svg viewBox="0 0 38 38" fill="none" aria-hidden="true"><path d="M5 14C5 6 14 4 17 10c3 6-5 8-3 14 2 7 12 5 12-2 0-6-9-5-8-12 1-7 14-5 15 4M5 22c0 10 12 14 19 10M25 4c10 0 15 15 6 22" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>`;
