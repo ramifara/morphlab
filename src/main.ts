@@ -55,9 +55,10 @@ let hudVisible = !embed && stored('hud', true);
 const docks = { left: stored('dock-left', !compact()), right: stored('dock-right', !compact()) };
 
 // ---------- Markup ----------
-const digits = (id: string) => (id === 'feed' || id === 'kill' ? 4 : 2);
+const digits = (id: string) => (id === 'feed' || id === 'kill' ? 4 : 3);
+const REACTION_KEYS = ['feed', 'kill', 'diffusionA', 'diffusionB'] as const;
 function slider(id: string, label: string, symbol: string, value: number, min: number, max: number, step: number, hint = '') {
-  return `<div class="field"><div class="field-head"><label for="${id}">${label}${symbol ? ` <i>${symbol}</i>` : ''}</label><output for="${id}" id="${id}-value">${value.toFixed(digits(id))}</output></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}"/>${hint ? `<p class="field-hint">${hint}</p>` : ''}</div>`;
+  return `<div class="field"><div class="field-head"><label for="${id}">${label}${symbol ? ` <i>${symbol}</i>` : ''}</label><input class="value" id="${id}-value" type="text" inputmode="decimal" value="${value.toFixed(digits(id))}" aria-label="${label} value" title="Type an exact value"/></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}"/>${hint ? `<p class="field-hint">${hint}</p>` : ''}</div>`;
 }
 const section = (n: string, title: string, body: string, extra = '') =>
   `<details class="section" open><summary><span class="section-n">${n}</span><span class="section-title">${title}</span>${extra}${icon('chevron', 'section-chevron')}</summary><div class="section-body">${body}</div></details>`;
@@ -108,7 +109,7 @@ $('#app').innerHTML = `
       ${section('01', 'Reaction',
         slider('feed', 'Feed', 'f', params.feed, .005, .095, .0001, 'How much chemical A enters the system.') +
         slider('kill', 'Kill', 'k', params.kill, .03, .075, .0001, 'How quickly chemical B fades away.') +
-        `<div class="pair">${slider('diffusionA', 'Diffusion A', '', params.diffusionA, .1, 1, .01)}${slider('diffusionB', 'Diffusion B', '', params.diffusionB, .05, .8, .01)}</div>`,
+        `<div class="pair">${slider('diffusionA', 'Diffusion A', '', params.diffusionA, .1, 1, .001)}${slider('diffusionB', 'Diffusion B', '', params.diffusionB, .05, .8, .001)}</div>`,
         `<button class="help-button" id="reaction-help" aria-label="About reaction parameters">${icon('info')}</button>`)}
       ${section('02', 'Appearance',
         `<div class="palettes" role="group" aria-label="Color palette">${palettes.map((p, i) => `<button class="palette" data-palette="${i}" title="${p.name}" aria-label="${p.name} palette" aria-pressed="false" style="--swatch-bg:${p.background};--swatch-fg:${p.foreground}"><span></span></button>`).join('')}</div>
@@ -126,7 +127,7 @@ $('#app').innerHTML = `
   </aside>
 
   <aside class="hud dock dock-right panel" id="dock-right" data-open="${docks.right}" aria-label="Specimens">
-    <div class="dock-head"><span class="dock-title">${icon('layers')} Specimens</span><span class="dock-note">1–6</span><button class="icon-button small dock-close" data-close="right" aria-label="Close panel">${icon('close')}</button></div>
+    <div class="dock-head"><span class="dock-title">${icon('layers')} Specimens</span><span class="dock-note">1–${presets.length}</span><button class="icon-button small dock-close" data-close="right" aria-label="Close panel">${icon('close')}</button></div>
     <div class="dock-scroll">
       <div class="presets">${presets.map((p, i) => `<button class="preset" data-preset="${i}" aria-pressed="false"><span class="preset-art" style="background-image:url('/presets/${p.name.toLowerCase()}.svg')"></span><span class="preset-info"><span class="preset-name">${p.name}</span><small>${p.subtitle}</small><code>f ${p.feed.toFixed(4)} · k ${p.kill.toFixed(4)}</code></span><span class="preset-n">0${i + 1}</span></button>`).join('')}</div>
       <button class="surprise-button" id="surprise">${icon('shuffle')} Surprise me <kbd>S</kbd></button>
@@ -190,9 +191,34 @@ function updateSpecimenLabel() {
   $$('.preset').forEach(el => { const active = exact && Number(el.dataset.preset) === presetIndex; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
 }
 function updateSliders() {
-  for (const [key, value] of Object.entries(params)) { const el = $<HTMLInputElement>(`#${key}`); el.value = String(value); $(`#${key}-value`).textContent = value.toFixed(digits(key)); }
+  for (const [key, value] of Object.entries(params)) { const el = $<HTMLInputElement>(`#${key}`); el.value = String(value); $<HTMLInputElement>(`#${key}-value`).value = value.toFixed(digits(key)); }
   $$<HTMLInputElement>('input[type=range]').forEach(updateRange);
 }
+/** Snap a value to the slider's range and step. */
+function clampToRange(el: HTMLInputElement, value: number) {
+  const min = Number(el.min), max = Number(el.max), step = Number(el.step) || 1;
+  return Math.min(max, Math.max(min, Math.round((value - min) / step) * step + min));
+}
+function setParam(key: keyof Parameters, value: number) {
+  if (!Number.isFinite(value)) { updateSliders(); return; }
+  params[key] = Number(clampToRange($<HTMLInputElement>(`#${key}`), value).toFixed(6)); updateSliders(); updateSpecimenLabel();
+}
+// Typed values: commit on Enter or blur, nudge with arrow keys (Shift for ten steps).
+for (const key of REACTION_KEYS) {
+  const field = $<HTMLInputElement>(`#${key}-value`); const range = $<HTMLInputElement>(`#${key}`);
+  field.addEventListener('change', () => setParam(key, parseFloat(field.value.replace(',', '.'))));
+  field.addEventListener('focus', () => field.select());
+  field.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { field.blur(); return; }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault(); setParam(key, params[key] + (e.key === 'ArrowUp' ? 1 : -1) * Number(range.step) * (e.shiftKey ? 10 : 1));
+  });
+}
+// Scrolling over any slider nudges it by one step; Shift scrolls ten.
+$$<HTMLInputElement>('input[type=range]').forEach(el => el.addEventListener('wheel', e => {
+  e.preventDefault(); const dir = e.deltaY < 0 ? 1 : -1; const next = clampToRange(el, Number(el.value) + dir * (Number(el.step) || 1) * (e.shiftKey ? 10 : 1));
+  if (next === Number(el.value)) return; el.value = String(next); el.dispatchEvent(new Event('input', { bubbles: true }));
+}, { passive: false }));
 function updateRange(el: HTMLInputElement) { el.style.setProperty('--fill', `${(Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min)) * 100}%`); }
 $$<HTMLInputElement>('input[type=range]').forEach(el => { updateRange(el); el.addEventListener('input', () => updateRange(el)); });
 for (const key of Object.keys(params) as (keyof Parameters)[]) $(`#${key}`).addEventListener('input', e => {
@@ -207,6 +233,13 @@ function setPreset(index: number, randomSeed = false) {
   presetIndex = index; const preset = presets[index];
   params = { feed: preset.feed, kill: preset.kill, diffusionA: 1, diffusionB: .5 }; if (randomSeed) seed = Math.floor(Math.random() * 1e9);
   updateSliders(); updateSpecimenLabel();
+  if (preset.look) {
+    // A specimen can carry the look that makes it read well, not just the chemistry.
+    const { look } = preset; setColors(look.background, look.foreground);
+    if (look.threshold !== undefined) { threshold = look.threshold; const el = $<HTMLInputElement>('#threshold'); el.value = String(threshold); updateRange(el); updateThresholdLabel(); }
+    if (look.speed !== undefined) { speed = look.speed; const el = $<HTMLInputElement>('#speed'); el.value = String(speed); updateRange(el); updateSpeedLabel(); }
+    if (look.zoom !== undefined) { setZoom(look.zoom); setPan(0, 0); }
+  }
   reseed(true);
 }
 $$('[data-preset]').forEach(el => el.addEventListener('click', () => setPreset(Number(el.dataset.preset))));
@@ -419,10 +452,10 @@ $('#export-embed').addEventListener('click', () => {
 });
 
 // ---------- Dialogs ----------
-const science = `<h2>How does a pattern grow itself?</h2><p>Two imaginary chemicals spread across the canvas. A feeds the reaction; B consumes A and slowly fades. Tiny differences grow into stripes, spots, and winding branches.</p><div class="equations"><div>∂A/∂t = D<sub>A</sub>∇²A − AB² + f(1 − A)</div><div>∂B/∂t = D<sub>B</sub>∇²B + AB² − (k + f)B</div></div><p>This is the <strong>Gray–Scott reaction–diffusion model</strong>, a relative of the mechanism Alan Turing proposed for biological pattern formation. The field wraps at its edges like a torus, which is why you can move across it endlessly.</p><div class="field-tip"><strong>Try this</strong><p>Choose Coral, lower the feed rate a little, then paint into the canvas. Small changes can make a completely different world.</p></div><p class="source-note">Model and stencil reference: <a href="https://www.karlsims.com/rd.html" target="_blank" rel="noopener noreferrer">Karl Sims' reaction–diffusion tutorial ↗</a></p>`;
+const science = `<h2>How does a pattern grow itself?</h2><p>Two imaginary chemicals spread across the canvas. A feeds the reaction; B consumes A and slowly fades. Tiny differences grow into stripes, spots, and winding branches.</p><div class="equations"><div>∂A/∂t = D<sub>A</sub>∇²A − AB² + f(1 − A)</div><div>∂B/∂t = D<sub>B</sub>∇²B + AB² − (k + f)B</div></div><p>This is the <strong>Gray–Scott reaction–diffusion model</strong>, a relative of the mechanism Alan Turing proposed for biological pattern formation. The field wraps at its edges like a torus, which is why you can move across it endlessly.</p><div class="field-tip"><strong>Try this</strong><p>Choose Coral, lower the feed rate by a few ten-thousandths, then paint into the canvas. Click any number to type an exact value, or scroll over a slider to nudge it one step at a time. Small changes can make a completely different world.</p></div><p class="source-note">Model and stencil reference: <a href="https://www.karlsims.com/rd.html" target="_blank" rel="noopener noreferrer">Karl Sims' reaction–diffusion tutorial ↗</a></p>`;
 const shortcutRows: [string, string][] = [
   ['Play / pause', 'Space'], ['Paint chemical B', 'B'], ['Eraser', 'E'], ['Move around', 'V'], ['Temporarily erase', 'Shift + drag'], ['Temporarily move', 'Alt + drag / middle button'],
-  ['Brush size', ', / .'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Choose specimen', '1 – 6'], ['Cycle palette', 'C'], ['Swap colors', 'X'],
+  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it / arrows'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
   ['Move', 'Scroll / arrows'], ['Zoom', '⌘ Scroll / − / +'], ['Reset view', '0'], ['Fullscreen', 'F'], ['Hide or show interface', 'H'], ['Recipe panel', '['], ['Specimens panel', ']'], ['Close menu or dialog', 'Esc'],
 ];
 const shortcuts = `<h2>Less clicking. More growing.</h2><div class="shortcut-list">${shortcutRows.map(([label, key]) => `<div><span>${label}</span><kbd>${key}</kbd></div>`).join('')}</div>`;
@@ -450,7 +483,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') setPan(pan.x - nudge, pan.y); else if (e.key === 'ArrowRight') setPan(pan.x + nudge, pan.y);
   else if (e.key === 'ArrowUp') setPan(pan.x, pan.y - nudge); else if (e.key === 'ArrowDown') setPan(pan.x, pan.y + nudge);
   else if (e.key === '?') showDialog(shortcuts);
-  else if (/^[1-6]$/.test(e.key)) setPreset(Number(e.key) - 1);
+  else if (/^[1-9]$/.test(e.key) && Number(e.key) <= presets.length) setPreset(Number(e.key) - 1);
   else return;
   if (e.key.startsWith('Arrow')) e.preventDefault();
 });

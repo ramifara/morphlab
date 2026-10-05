@@ -1,9 +1,10 @@
 // Offline specimen thumbnails. The interactive canvas always simulates on the GPU.
 import { contours } from 'd3-contour';
 import { writeFileSync } from 'node:fs';
-const recipes = [['coral',.0545,.062],['fingerprint',.037,.060],['mitosis',.0367,.0649],['spots',.03,.062],['worms',.062,.0609],['bloom',.025,.055]];
+// name, feed, kill, and optionally the contour threshold and colors that specimen carries.
+const recipes = [['coral',.0545,.062],['fingerprint',.037,.060],['mitosis',.0367,.0649],['spots',.03,.062],['worms',.062,.0609],['bloom',.025,.055],['pulse',.0329,.0556,.19,'#29191a','#ff936d']];
 const w = 112, h = 64;
-for (const [name,feed,kill] of recipes) {
+for (const [name,feed,kill,threshold=.19,bg='#20221d',fg='#d6dbbe'] of recipes) {
   let a = new Float32Array(w*h).fill(1), b = new Float32Array(w*h), na = a.slice(), nb = b.slice();
   let state = 42;
   const rand = () => { state = (Math.imul(state,1664525)+1013904223)>>>0; return state/4294967296; };
@@ -28,7 +29,7 @@ for (const [name,feed,kill] of recipes) {
     }
     [a,na] = [na,a]; [b,nb] = [nb,b];
   }
-  const geometry = contours().size([w,h]).thresholds([.19])(b)[0];
+  const geometry = contours().size([w,h]).thresholds([threshold])(b)[0];
   const d = geometry.coordinates.map(p=>p.map(r=>r.map(([x,y],i)=>`${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('')+'Z').join('')).join('');
-  writeFileSync(`public/presets/${name}.svg`,`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#20221d"/><path d="${d}" fill="#d6dbbe" fill-rule="evenodd"/></svg>`);
+  writeFileSync(`public/presets/${name}.svg`,`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="${bg}"/><path d="${d}" fill="${fg}" fill-rule="evenodd"/></svg>`);
 }

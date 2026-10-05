@@ -151,7 +151,10 @@ code { font: 10px var(--mono); }
 .field-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
 .field-head label { font-size: 11.5px; font-weight: 500; color: var(--text); }
 .field-head label i { font: italic 10px var(--mono); color: var(--muted); margin-left: 3px; }
-.field-head output { font: 11px var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.field-head output, .field-head .value { font: 11px var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.field-head .value { width: 64px; text-align: right; background: none; border: 0; border-bottom: 1px dotted transparent; padding: 1px 0; border-radius: 0; cursor: text; transition: border-color .15s; }
+.field-head .value:hover { border-bottom-color: var(--accent-line); }
+.field-head .value:focus { outline: none; border-bottom-color: var(--accent); color: var(--text); }
 .field-hint { margin: 2px 0 0; font-size: 10px; line-height: 1.5; color: var(--muted); }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
 .pair .field-head label { font-size: 10.5px; }

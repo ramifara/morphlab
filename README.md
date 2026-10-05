@@ -23,8 +23,8 @@ npm run preview
 
 The canvas fills the window. Everything else floats over it and can be hidden.
 
-- **Specimens** (right panel): pick a starting recipe, or press 1–6. **Surprise me** picks a random specimen, seed, and palette.
-- **Recipe** (left panel): change feed, kill, or either diffusion rate. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, or compute engine.
+- **Specimens** (right panel): pick a starting recipe, or press 1–7. **Surprise me** picks a random specimen, seed, and palette.
+- **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, or compute engine.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
@@ -61,7 +61,7 @@ The lab reads its state from the query string, which is what share links and emb
 
 | Parameter | Meaning |
 | --- | --- |
-| `p` | Specimen index, 0–5 |
+| `p` | Specimen index, 0–6 |
 | `f`, `k` | Feed and kill rates |
 | `da`, `db` | Diffusion rates for A and B |
 | `bg`, `fg` | Background and pattern colors as six-digit hex without `#` |
