@@ -1,5 +1,5 @@
 export const BASE_WIDTH = 512, BASE_HEIGHT = 320;
-export const resolutions = [1, 2, 3, 4] as const;
+export const resolutions = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type Resolution = typeof resolutions[number];
 
 export function parseResolution(value: unknown): Resolution {

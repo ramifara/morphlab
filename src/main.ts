@@ -554,10 +554,11 @@ new ResizeObserver(() => sizeCanvas($<HTMLCanvasElement>('#simulation'))).observ
 
 // ---------- Engine lifecycle ----------
 function updateResolutionUI() {
+  const highest = resolutions[resolutions.length - 1];
   $<HTMLSelectElement>('#resolution').value = String(resolution);
   $('#grid-size').textContent = `${width} × ${height}`;
   $('#resolution-hint').textContent = resolution === 1
-    ? '2×, 3×, and 4× use 4×, 9×, and 16× as many cells. Higher settings use more GPU memory and may run slower on your device.'
+    ? `Higher bases use more GPU memory and may run slower. 2× uses 4× as many cells; ${highest}× uses ${highest * highest}×.`
     : `${resolution * resolution}× as many cells as 1×. More GPU work and memory; may run slower on your device. Lower evolution speed if needed.`;
 }
 async function initialize(backend = 'auto', nextResolution: Resolution = resolution): Promise<boolean> {
