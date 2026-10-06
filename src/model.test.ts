@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeSeed, palettes } from './model';
+import { makeSeed, addSeeds, defaultStart, seedModes, palettes } from './model';
 import { fieldToSVG } from './export';
 
 describe('initial chemical field', () => {
@@ -18,6 +18,43 @@ describe('initial chemical field', () => {
     for (let y = 0; y < 80; y++) for (let x = 0; x < 128; x++) {
       if (Math.abs(x - 64) > 22 || Math.abs(y - 40) > 22) expect(a[(y * 128 + x) * 2 + 1]).toBe(0);
     }
+  });
+  it('makes an exactly empty equilibrium independent of the seed number', () => {
+    const field = makeSeed(64, 40, 0, 'empty');
+    expect(field).toEqual(makeSeed(64, 40, 4294967295, 'empty'));
+    for (let i = 0; i < field.length; i += 2) { expect(field[i]).toBe(1); expect(field[i + 1]).toBe(0); }
+  });
+  it('repeats every geometric start with the same number and settings', () => {
+    for (const mode of seedModes.filter(mode => mode !== 'image' && mode !== 'empty')) {
+      const settings = { ...defaultStart(mode), count: 9, radius: 3 };
+      const field = makeSeed(64, 40, 0, mode, settings);
+      expect(field).toEqual(makeSeed(64, 40, 0, mode, settings));
+      expect(field.some((v, i) => i % 2 === 1 && v > 0)).toBe(true);
+      expect([...field].every(v => Number.isFinite(v) && v >= 0 && v <= 1)).toBe(true);
+    }
+  });
+  it('supports corner positions and wraps large seeds on small fields', () => {
+    const field = makeSeed(128, 80, 42, 'spot', { x: .08, y: .08, radius: 3, amount: .6 });
+    expect(field[(6 * 128 + 10) * 2 + 1]).toBeGreaterThan(.59);
+    expect(field[(40 * 128 + 64) * 2 + 1]).toBe(0);
+    const tiny = makeSeed(4, 4, 42, 'spot', { x: 0, y: 0, radius: 30 });
+    expect([...tiny].every(v => v >= 0 && v <= 1)).toBe(true);
+    expect([...tiny].filter((_, i) => i % 2 === 1).every(v => v > 0)).toBe(true);
+  });
+  it('controls seed density, size, and chemical amount independently', () => {
+    const occupied = (field: Float32Array) => [...field].filter((v, i) => i % 2 === 1 && v > 0).length;
+    expect(occupied(makeSeed(128, 80, 42, 'scatter', { count: 50 }))).toBeGreaterThan(occupied(makeSeed(128, 80, 42, 'scatter', { count: 1 })));
+    expect(occupied(makeSeed(128, 80, 42, 'spot', { radius: 10 }))).toBeGreaterThan(occupied(makeSeed(128, 80, 42, 'spot', { radius: 3 })));
+    const low = makeSeed(128, 80, 42, 'spot', { amount: .1 }), high = makeSeed(128, 80, 42, 'spot', { amount: .6 });
+    expect(occupied(low)).toBe(occupied(high));
+    expect(high[(40 * 128 + 64) * 2 + 1] - low[(40 * 128 + 64) * 2 + 1]).toBeCloseTo(.5);
+  });
+  it('adds only in the mask, keeps existing chemistry, and caps concentrations', () => {
+    const original = new Float32Array([.8, .2, .4, .9, 1, 0]);
+    const result = addSeeds(original, new Float32Array([1, 0, .5, .3, .5, .25]));
+    expect([...result]).toEqual([...new Float32Array([.8, .2, .4, 1, .5, .25])]);
+    expect([...original]).toEqual([...new Float32Array([.8, .2, .4, .9, 1, 0])]);
+    expect(() => addSeeds(original, new Float32Array(2))).toThrow('dimensions');
   });
 });
 describe('vector export', () => {

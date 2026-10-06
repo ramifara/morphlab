@@ -7,6 +7,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: {
   removeItem: (k: string) => void memory.delete(k), clear: () => memory.clear(), key: () => null, length: 0,
 }, configurable: true });
 const { createAppStore } = await import('./store');
+const { defaultStart } = await import('./model');
 
 const draft = { feed: .0329, kill: .0556, diffusionA: 1, diffusionB: .5, background: '#20221d', foreground: '#e3e5cc', threshold: .3, speed: 24, seed: 52208484, seedMode: 'scatter' as const };
 
@@ -37,6 +38,14 @@ describe('preset library', () => {
     const store = createAppStore();
     store.getState().savePreset({ ...draft, name: 'A' }); store.getState().savePreset({ ...draft, name: 'B' });
     expect(store.getState().saved.map(p => p.name)).toEqual(['B', 'A']);
+  });
+  it('persists starting field controls without changing legacy saves', () => {
+    const store = createAppStore();
+    store.getState().savePreset({ ...draft, name: 'Legacy' });
+    const start = { ...defaultStart('ring'), count: 12, amount: .6, x: .08, y: .92, paused: true, grown: false };
+    store.getState().savePreset({ ...draft, name: 'Corner ring', seedMode: 'ring', start });
+    expect(createAppStore().getState().saved[0].start).toEqual(start);
+    expect(createAppStore().getState().saved[1].start).toBeUndefined();
   });
   it('rehydrates snapshot references alongside legacy recipe-only saves', () => {
     const store = createAppStore();

@@ -312,3 +312,23 @@ dialog strong { color: var(--text); font-weight: 600; }
 .saved-empty { font-size: 10.5px; line-height: 1.6; color: var(--muted); margin: 4px 14px 8px; }
 .text-input { width: 100%; height: 36px; margin-top: 6px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .03); color: var(--text); font-size: 13px; }
 .text-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- Starting field ---------- */
+.start-mode { margin-top: 2px; }
+.start-preview { position: relative; margin: 10px 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.start-preview canvas { display: block; width: 100%; height: auto; }
+.start-preview > span { position: absolute; left: 0; bottom: 0; padding: 5px 8px; font: 9px var(--mono); color: var(--text-dim); background: var(--glass-strong); border-radius: 0 var(--radius-sm) 0 0; }
+.seed-number { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; margin-top: 12px; }
+.seed-number input { width: 122px; padding: 6px 8px; text-align: right; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(255,255,255,.03); color: var(--accent); font: 11px var(--mono); }
+.start-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 10px 0 6px; }
+.start-actions button { justify-content: center; padding: 0 7px; font-size: 11px; }
+.start-actions .text-button { border: 1px solid var(--line-strong); }
+.start-actions .icon { width: 13px; height: 13px; }
+.start-image .image-upload { display: flex; align-items: center; justify-content: center; gap: 8px; position: relative; padding: 10px; margin-bottom: 5px; border-radius: var(--radius-sm); border: 1px dashed var(--accent-line); color: var(--accent); font-size: 11px; cursor: pointer; }
+.image-upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.image-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#start-playback { margin-top: 10px; }
+.start-tuning { margin: 12px 0 4px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.start-tuning > summary { padding: 9px 0; height: auto; font-size: 11px; color: var(--text-dim); }
+.start-tuning > summary .icon { margin-left: auto; width: 12px; height: 12px; }
+.start-tuning[open] { padding-bottom: 10px; }

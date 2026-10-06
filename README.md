@@ -25,6 +25,8 @@ The canvas fills the window. Everything else floats over it and can be hidden.
 
 - **Specimens** (right panel): pick a starting recipe, or press 1–7. **Surprise me** picks a random specimen, seed, and palette.
 - **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, base resolution, or compute engine. Base resolution offers 1×, 2×, 3×, and 4× grids. The higher settings use 4×, 9×, and 16× as many cells, with more GPU work and memory use, so they may run slower on some devices.
+- **Starting field** (top of Recipe): choose empty, scattered dots, a cluster, a single spot, a ring, a line, a grid, or an image. Type a seed number from 0 to 4294967295. **Restart seed** repeats the same field with the current settings; **New seed** picks a new number and starts fresh. **Add seeds** adds chemical to the current pattern and preserves the rest of the field. **Clear canvas** clears and pauses so you can paint first. Expand **Size, amount & position** for seed count, size, chemical B concentration, corners, edges, and custom coordinates. The B amount also controls the paint brush; Feed controls the ongoing supply of A. Recipe selection keeps your chosen starting field; Surprise me returns to scattered dots.
+- **Image starts**: choose **From an image**, upload a logo, drawing, or photo, then adjust the cutoff and choose dark or light areas. Transparent areas stay empty, and the image keeps its proportions. Restart plants the silhouette and pauses; press play to watch it grow. The silhouette is sampled at 128 × 80 and stays in saved versions, share links, and embeds. Reloading retains the silhouette; upload again to adjust its cutoff. Image processing happens locally in your browser.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
@@ -44,7 +46,7 @@ The simulation uses the Gray–Scott equations on a periodic grid. The default 1
 
 Simulation and canvas rendering stay on the GPU. Seed creation, saving and restoring versions, and export processing use the CPU. Changing engines preserves the current chemical field when the old device is still readable. Changing base resolution resamples both chemicals across the wrapping edges and keeps the current view and brush size. Continuing the simulation on a larger grid can grow finer patterns; lowering resolution loses some detail. The view preserves pattern proportions and crops to fit its container; zoom and cropping do not change the chemistry.
 
-The presets start with a short accelerated growth phase. Reseed starts from fresh seeds so you can watch the full evolution. Browser visibility pauses GPU submissions.
+Preview grown pattern adds a short accelerated growth phase. Turn it off to watch from the first seeds, or choose Start paused to inspect or paint before growing. New seed always starts fresh. Empty starts always pause. Browser visibility pauses GPU submissions.
 
 Model reference: [Karl Sims' reaction–diffusion tutorial](https://www.karlsims.com/rd.html).
 
@@ -71,6 +73,12 @@ The lab reads its state from the query string, which is what share links and emb
 | `s` | Evolution speed, 1–48 steps per frame |
 | `r` | Base resolution multiplier, 1, 2, 3, or 4; defaults to 1 |
 | `seed` | Seed for the initial field |
+| `start` | `empty`, `scatter`, `center`, `spot`, `ring`, `line`, `grid`, or `image` |
+| `init_count`, `init_radius`, `init_amount` | Seed count, size in base-grid cells, and chemical B concentration |
+| `init_x`, `init_y` | Starting position, each from 0 to 1 |
+| `grown`, `paused` | Preview grown or start paused, each `0` or `1` |
+| `image` | URL-safe Base64-encoded 128 × 80 binary image silhouette |
+| `init_imageScale` | Image size relative to the field, 0.1–1 |
 | `z` | Zoom, 0.25–6 |
 | `embed` | Hide the interface entirely |
 | `interact=0` | Disable painting and moving, for backgrounds |
