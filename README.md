@@ -24,7 +24,7 @@ npm run preview
 The canvas fills the window. Everything else floats over it and can be hidden.
 
 - **Specimens** (right panel): pick a starting recipe, or press 1–7. **Surprise me** picks a random specimen, seed, and palette.
-- **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, base resolution, or compute engine. Base resolution offers 1×, 2×, 3×, and 4× grids. The higher settings use 4×, 9×, and 16× as many cells, with more GPU work and memory use, so they may run slower on some devices.
+- **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, base resolution, or compute engine. Base resolution offers every whole-number multiplier from 1× through 8×. Both grid dimensions scale, so 2× uses 4× as many cells and 8× uses 64×. Higher settings need more GPU work and memory and may run slower on some devices.
 - **Starting field** (top of Recipe): choose empty, scattered dots, a cluster, a single spot, a ring, a line, a grid, or an image. Type a seed number from 0 to 4294967295. **Restart seed** repeats the same field with the current settings; **New seed** picks a new number and starts fresh. **Add seeds** adds chemical to the current pattern and preserves the rest of the field. **Clear canvas** clears and pauses so you can paint first. Expand **Size, amount & position** for seed count, size, chemical B concentration, corners, edges, and custom coordinates. The B amount also controls the paint brush; Feed controls the ongoing supply of A. Recipe selection keeps your chosen starting field; Surprise me returns to scattered dots.
 - **Image starts**: choose **From an image**, upload a logo, drawing, or photo, then adjust the cutoff and choose dark or light areas. Transparent areas stay empty, and the image keeps its proportions. Restart plants the silhouette and pauses; press play to watch it grow. The silhouette is sampled at 128 × 80 and stays in saved versions, share links, and embeds. Reloading retains the silhouette; upload again to adjust its cutoff. Image processing happens locally in your browser.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
@@ -39,7 +39,7 @@ Some parameter combinations produce a uniform field. That is a valid equilibrium
 
 ## GPU simulation
 
-The simulation uses the Gray–Scott equations on a periodic grid. The default 1× grid is 512 × 320; 2× is 1024 × 640, 3× is 1536 × 960, and 4× is 2048 × 1280. A nine-point Laplacian weights the center −1, cardinal neighbors 0.2, and diagonal neighbors 0.05. Both engines use a time step of 1 and the same seeded chemical field.
+The simulation uses the Gray–Scott equations on a periodic grid. The default 1× grid is 512 × 320. Each whole-number multiplier scales both dimensions, up to 4096 × 2560 at 8×. A nine-point Laplacian weights the center −1, cardinal neighbors 0.2, and diagonal neighbors 0.05. Both engines use a time step of 1 and the same seeded chemical field.
 
 - **WebGPU:** WGSL compute shaders alternate between two storage buffers. A fragment shader interpolates the field and applies the palette.
 - **WebGL 2:** GLSL fragment shaders alternate between two RG32F framebuffer textures. This requires `EXT_color_buffer_float`.
@@ -71,7 +71,7 @@ The lab reads its state from the query string, which is what share links and emb
 | `bg`, `fg` | Background and pattern colors as six-digit hex without `#` |
 | `w` | Pattern weight threshold, 0.08–0.3 |
 | `s` | Evolution speed, 1–48 steps per frame |
-| `r` | Base resolution multiplier, 1, 2, 3, or 4; defaults to 1 |
+| `r` | Whole-number base resolution multiplier, 1 through 8; defaults to 1 |
 | `seed` | Seed for the initial field |
 | `start` | `empty`, `scatter`, `center`, `spot`, `ring`, `line`, `grid`, or `image` |
 | `init_count`, `init_radius`, `init_amount` | Seed count, size in base-grid cells, and chemical B concentration |
