@@ -4,11 +4,14 @@ import { palettes, presets, makeSeed, idleBrush, type Parameters, type Brush, ty
 import { WebGPUEngine, WebGLEngine, type Engine } from './engine';
 import { download, fieldToPNG, fieldToSVG, fieldToThumbnail } from './export';
 import { createAppStore, type SavedPreset } from './store';
+import { BASE_WIDTH, resolutions, parseResolution, gridSize, resizeField, type Resolution } from './resolution';
 import { loadSnapshot, saveSnapshot, removeSnapshot, type MorphSnapshot } from './snapshots';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const $$ = <T extends HTMLElement = HTMLElement>(selector: string) => Array.from(document.querySelectorAll<T>(selector));
-const WIDTH = 512, HEIGHT = 320, ZOOM_MIN = .25, ZOOM_MAX = 6;
+const ZOOM_MIN = .25, ZOOM_MAX = 6;
+let resolution: Resolution = 1;
+let { width, height } = gridSize(resolution);
 type Tool = 'brush' | 'eraser' | 'hand';
 
 // ---------- State ----------
@@ -26,6 +29,8 @@ const interactive = query.get('interact') !== '0';
 const num = (key: string, fallback: number, min: number, max: number) => { const v = Number(query.get(key)); return query.has(key) && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback; };
 const hex = (key: string, fallback: string) => { const v = query.get(key) ?? ''; return /^[0-9a-f]{6}$/i.test(v) ? `#${v.toLowerCase()}` : fallback; };
 {
+  resolution = parseResolution(query.get('r'));
+  ({ width, height } = gridSize(resolution));
   presetIndex = Math.round(num('p', 0, 0, presets.length - 1));
   params = { feed: num('f', presets[presetIndex].feed, .005, .095), kill: num('k', presets[presetIndex].kill, .03, .075), diffusionA: num('da', 1, .1, 1), diffusionB: num('db', .5, .05, .8) };
   seed = Math.round(num('seed', 42, 0, 1e9)); threshold = num('w', .19, .08, .3); speed = Math.round(num('s', 16, 1, 48)); zoom = num('z', 1, ZOOM_MIN, ZOOM_MAX);
@@ -37,6 +42,7 @@ function stateParams() {
   const q = new URLSearchParams();
   q.set('p', String(presetIndex)); q.set('f', params.feed.toFixed(4)); q.set('k', params.kill.toFixed(4)); q.set('da', params.diffusionA.toFixed(2)); q.set('db', params.diffusionB.toFixed(2));
   q.set('bg', palette.background.slice(1)); q.set('fg', palette.foreground.slice(1)); q.set('w', threshold.toFixed(3)); q.set('s', String(speed)); q.set('seed', String(seed));
+  if (resolution !== 1) q.set('r', String(resolution));
   if (zoom !== 1) q.set('z', zoom.toFixed(2));
   return q;
 }
@@ -86,8 +92,8 @@ $('#app').innerHTML = `
         <button id="export-toggle" class="text-button" aria-expanded="false" aria-controls="export-menu">${icon('download')}<span>Export</span></button>
         <div id="export-menu" class="menu panel" hidden>
           <span class="menu-heading">Image</span>
-          ${menuItem('export-png', 'PNG · 2048 × 1280', 'Smoothed 4× enlargement of the field', '.png')}
-          ${menuItem('export-png-8', 'PNG · 4096 × 2560', '8× for print', '.png')}
+          ${menuItem('export-png', 'PNG · 2048 × 1280', 'Full field · current colors and weight', '.png')}
+          ${menuItem('export-png-8', 'PNG · 4096 × 2560', 'Larger image for print', '.png')}
           <span class="menu-heading">Vector</span>
           ${menuItem('export-svg', 'SVG shapes', 'One editable path per blob, holes included', '.svg')}
           <label class="menu-option"><input type="checkbox" id="svg-smooth" checked/><span>Smooth curves</span></label>
@@ -124,6 +130,8 @@ $('#app').innerHTML = `
         `<span class="section-note" id="palette-name">${palette.name}</span>`)}
       ${section('03', 'Simulation',
         `<div class="field compact"><div class="field-head"><label for="speed">Evolution speed</label><output for="speed" id="speed-value">1×</output></div><input type="range" id="speed" min="1" max="48" step="1" value="${speed}"/><div class="range-labels"><span>Unhurried</span><span>Impatient</span></div></div>
+         <label class="select-field" for="resolution"><span>Base resolution</span><span class="select-wrap"><select id="resolution" aria-describedby="resolution-hint">${resolutions.map(r => { const size = gridSize(r); return `<option value="${r}" ${r === resolution ? 'selected' : ''}>${r}× · ${size.width} × ${size.height}${r === 1 ? ' · Default' : ''}</option>`; }).join('')}</select>${icon('chevron')}</span></label>
+         <p class="field-hint resolution-hint" id="resolution-hint" aria-live="polite"></p>
          <label class="select-field" for="backend"><span>Compute engine</span><span class="select-wrap"><select id="backend"><option value="auto">Auto</option><option value="webgpu">WebGPU</option><option value="webgl">WebGL 2</option></select>${icon('chevron')}</span></label>`)}
     </div>
   </aside>
@@ -140,7 +148,7 @@ $('#app').innerHTML = `
   </aside>
 
   <div class="hud hud-bottom">
-    <div class="chip status" id="status"><span class="status-dot"></span><span id="engine-status">Connecting to GPU</span><span class="sep"></span><span id="fps">— fps</span><span class="sep"></span><span><span id="iteration-count">0</span> iter</span><span class="sep"></span><span>${WIDTH} × ${HEIGHT}</span></div>
+    <div class="chip status" id="status"><span class="status-dot"></span><span id="engine-status">Connecting to GPU</span><span class="sep"></span><span id="fps">— fps</span><span class="sep"></span><span><span id="iteration-count">0</span> iter</span><span class="sep"></span><span id="grid-size">${width} × ${height}</span></div>
     <div class="chip toolbar" role="toolbar" aria-label="Canvas tools">
       <button id="play" class="icon-button primary" aria-label="Pause simulation" title="Pause · Space">${icon('pause')}</button>
       <button id="step" class="icon-button" aria-label="Advance one step" title="Advance one step">${icon('step')}</button>
@@ -189,7 +197,7 @@ $$('[data-close]').forEach(el => el.addEventListener('click', () => setDock(el.d
 
 // ---------- Parameters ----------
 const matchesPreset = () => { const p = presets[presetIndex]; return params.feed === p.feed && params.kill === p.kill && params.diffusionA === 1 && params.diffusionB === .5; };
-const matchesSaved = (p: SavedPreset) => p.feed === params.feed && p.kill === params.kill && p.diffusionA === params.diffusionA && p.diffusionB === params.diffusionB && p.background === palette.background && p.foreground === palette.foreground && p.threshold === threshold && p.speed === speed;
+const matchesSaved = (p: SavedPreset) => p.feed === params.feed && p.kill === params.kill && p.diffusionA === params.diffusionA && p.diffusionB === params.diffusionB && p.background === palette.background && p.foreground === palette.foreground && p.threshold === threshold && p.speed === speed && parseResolution(p.resolution) === resolution;
 function updateSpecimenLabel() {
   const exact = matchesPreset(); const saved = store.getState().saved.find(matchesSaved);
   $('#specimen-name').textContent = exact ? presets[presetIndex].name : saved ? saved.name : 'Your experiment';
@@ -233,11 +241,12 @@ for (const key of Object.keys(params) as (keyof Parameters)[]) $(`#${key}`).addE
 });
 
 function reseed(prepare = false) {
+  if (!engine || switching || exporting) return;
   loadRevision++;
-  if (!engine) return;
-  engine.seed(makeSeed(WIDTH, HEIGHT, seed, presets[presetIndex].seed)); iterations = 0; warmup = prepare ? 1200 : 0; renderNeeded = true;
+  engine.seed(makeSeed(width, height, seed, presets[presetIndex].seed)); iterations = 0; warmup = prepare ? 1200 : 0; renderNeeded = true;
 }
 function setPreset(index: number, randomSeed = false) {
+  if (switching || exporting) return;
   presetIndex = index; const preset = presets[index];
   params = { feed: preset.feed, kill: preset.kill, diffusionA: 1, diffusionB: .5 }; if (randomSeed) seed = Math.floor(Math.random() * 1e9);
   updateSliders(); updateSpecimenLabel();
@@ -252,8 +261,9 @@ function setPreset(index: number, randomSeed = false) {
 }
 $$('[data-preset]').forEach(el => el.addEventListener('click', () => setPreset(Number(el.dataset.preset))));
 $('#reset-params').addEventListener('click', () => { setPreset(presetIndex); toast('Recipe restored.'); });
-$('#reseed').addEventListener('click', () => { seed = Math.floor(Math.random() * 1e9); reseed(); toast('Fresh seeds planted.'); });
+$('#reseed').addEventListener('click', () => { if (switching || exporting) return; seed = Math.floor(Math.random() * 1e9); reseed(); toast('Fresh seeds planted.'); });
 $('#surprise').addEventListener('click', () => {
+  if (switching || exporting) return;
   setPreset((presetIndex + 1 + Math.floor(Math.random() * (presets.length - 1))) % presets.length, true);
   setPalette(Math.floor(Math.random() * palettes.length)); setRunning(true); toast(`${presets[presetIndex].name} in ${palette.name.toLowerCase()}.`);
 });
@@ -297,14 +307,14 @@ function setBrushSize(value: number) { brushSize = Math.max(3, Math.min(45, Math
 $('#brush-size').addEventListener('input', e => { brushSize = Number((e.target as HTMLInputElement).value); });
 
 /** Grid cells per CSS pixel at the current zoom. The view preserves the field's proportions, so one number covers both axes. */
-function cellsPerPixel() { const rect = $('#simulation').getBoundingClientRect(); const aspect = rect.width / rect.height / (WIDTH / HEIGHT); return Math.min(1, aspect) / zoom * WIDTH / rect.width; }
+function cellsPerPixel() { const rect = $('#simulation').getBoundingClientRect(); const aspect = rect.width / rect.height / (width / height); return Math.min(1, aspect) / zoom * width / rect.width; }
 /** Unwrapped grid coordinate under a client point. */
 function toGrid(clientX: number, clientY: number): View {
-  const rect = $('#simulation').getBoundingClientRect(); const aspect = rect.width / rect.height / (WIDTH / HEIGHT);
-  return { x: (((clientX - rect.left) / rect.width - .5) * Math.min(1, aspect) / zoom + .5) * WIDTH + pan.x, y: (((clientY - rect.top) / rect.height - .5) * Math.min(1, 1 / aspect) / zoom + .5) * HEIGHT + pan.y };
+  const rect = $('#simulation').getBoundingClientRect(); const aspect = rect.width / rect.height / (width / height);
+  return { x: (((clientX - rect.left) / rect.width - .5) * Math.min(1, aspect) / zoom + .5) * width + pan.x, y: (((clientY - rect.top) / rect.height - .5) * Math.min(1, 1 / aspect) / zoom + .5) * height + pan.y };
 }
 const wrap = (v: number, size: number) => ((v % size) + size) % size;
-function setPan(x: number, y: number) { pan.x = wrap(x, WIDTH); pan.y = wrap(y, HEIGHT); renderNeeded = true; }
+function setPan(x: number, y: number) { pan.x = wrap(x, width); pan.y = wrap(y, height); renderNeeded = true; }
 function setZoom(value: number, anchor?: { clientX: number; clientY: number }) {
   const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(value * 100) / 100));
   const before = anchor ? toGrid(anchor.clientX, anchor.clientY) : null;
@@ -348,7 +358,7 @@ function attachCanvas() {
       const now = toGrid(mid.clientX, mid.clientY); setPan(pan.x + pinch.center.x - now.x, pan.y + pinch.center.y - now.y); return;
     }
     if (panning && last) { const k = cellsPerPixel(); setPan(pan.x - (e.clientX - last.x) * k, pan.y - (e.clientY - last.y) * k); last = { x: e.clientX, y: e.clientY }; return; }
-    const rect = canvas.getBoundingClientRect(); const diameter = brushSize * 2 / cellsPerPixel();
+    const rect = canvas.getBoundingClientRect(); const diameter = brushSize * resolution * 2 / cellsPerPixel();
     cursor.style.width = `${diameter}px`; cursor.style.height = `${diameter}px`; cursor.style.left = `${e.clientX - rect.left}px`; cursor.style.top = `${e.clientY - rect.top}px`; cursor.classList.add('visible');
     cursor.classList.toggle('erasing', tool === 'eraser' || e.shiftKey); if (drawing) paint(e);
   });
@@ -365,7 +375,7 @@ function attachCanvas() {
 }
 function paint(e: PointerEvent) {
   const g = toGrid(e.clientX, e.clientY);
-  brush = { x: wrap(g.x, WIDTH), y: wrap(g.y, HEIGHT), radius: brushSize, mode: tool === 'eraser' || e.shiftKey ? -1 : 1 };
+  brush = { x: wrap(g.x, width), y: wrap(g.y, height), radius: brushSize * resolution, mode: tool === 'eraser' || e.shiftKey ? -1 : 1 };
   // Preserve quick taps even when pointerup occurs before the next animation frame.
   pendingBrush = { ...brush };
   renderNeeded = true;
@@ -374,34 +384,89 @@ const sizeCanvas = (canvas: HTMLCanvasElement) => { const rect = canvas.getBound
 new ResizeObserver(() => sizeCanvas($<HTMLCanvasElement>('#simulation'))).observe($('#canvas-stage'));
 
 // ---------- Engine lifecycle ----------
-async function initialize(backend = 'auto') {
-  if (switching) return;
+function updateResolutionUI() {
+  $<HTMLSelectElement>('#resolution').value = String(resolution);
+  $('#grid-size').textContent = `${width} × ${height}`;
+  $('#resolution-hint').textContent = resolution === 1
+    ? '2×, 3×, and 4× use 4×, 9×, and 16× as many cells. Higher settings use more GPU memory and may run slower on your device.'
+    : `${resolution * resolution}× as many cells as 1×. More GPU work and memory; may run slower on your device. Lower evolution speed if needed.`;
+}
+async function initialize(backend = 'auto', nextResolution: Resolution = resolution): Promise<boolean> {
+  if (switching || exporting) return false;
   loadRevision++;
-  switching = true; $<HTMLSelectElement>('#backend').disabled = true; $('#loading').hidden = false; $('#loading-text').textContent = 'Waking up the chemistry…';
-  let previous: Float32Array | undefined;
-  try { previous = await engine?.read(); } catch { /* The old device may already be lost. */ }
-  engine?.destroy(); engine = null;
+  switching = true;
+  $<HTMLSelectElement>('#backend').disabled = true;
+  $<HTMLSelectElement>('#resolution').disabled = true;
+  $('#loading').hidden = false; $('#loading-text').textContent = 'Preparing the simulation…';
+  const previousEngine = engine, previousCanvas = $<HTMLCanvasElement>('#simulation');
+  const nextSize = gridSize(nextResolution);
+  let candidate: Engine | null = null;
+  let canvas = previousCanvas;
   const replaceCanvas = () => {
-    const old = $<HTMLCanvasElement>('#simulation'); const canvas = old.cloneNode(false) as HTMLCanvasElement; old.replaceWith(canvas); attachCanvas(); sizeCanvas(canvas); return canvas;
+    const replacement = previousCanvas.cloneNode(false) as HTMLCanvasElement;
+    canvas.replaceWith(replacement); canvas = replacement;
+    attachCanvas(); sizeCanvas(canvas); return canvas;
   };
   try {
-    let canvas = replaceCanvas();
+    let previous: Float32Array | undefined;
+    try { previous = await previousEngine?.read(); }
+    catch (error) { if (previousEngine && nextResolution !== resolution) throw error; /* A lost device can restart from seed. */ }
+    replaceCanvas();
     if (backend !== 'webgl') {
-      try { engine = await WebGPUEngine.create(canvas, WIDTH, HEIGHT, () => { toast('WebGPU disconnected. Restarting with WebGL.'); void initialize('webgl'); }); }
-      catch (error) { if (backend === 'webgpu') toast('WebGPU unavailable. Using WebGL 2.'); console.info('WebGPU fallback:', error); canvas = replaceCanvas(); }
+      try {
+        candidate = await WebGPUEngine.create(canvas, nextSize.width, nextSize.height, () => {
+          if (engine === candidate) { toast('WebGPU disconnected. Restarting with WebGL.'); void initialize('webgl'); }
+        });
+      } catch (error) {
+        if (backend === 'webgpu') toast('WebGPU unavailable. Using WebGL 2.');
+        console.info('WebGPU fallback:', error); replaceCanvas();
+      }
     }
-    engine ??= new WebGLEngine(canvas, WIDTH, HEIGHT);
-    engine.seed(previous ?? makeSeed(WIDTH, HEIGHT, seed, presets[presetIndex].seed));
+    candidate ??= new WebGLEngine(canvas, nextSize.width, nextSize.height);
+    candidate.seed(previous && previousEngine
+      ? resizeField(previous, previousEngine.width, previousEngine.height, nextSize.width, nextSize.height)
+      : makeSeed(nextSize.width, nextSize.height, seed, presets[presetIndex].seed));
+    const scale = nextResolution / resolution;
+    resolution = nextResolution; ({ width, height } = nextSize);
+    setPan(pan.x * scale, pan.y * scale);
+    engine = candidate; previousEngine?.destroy();
+    drawing = false; panning = false; pointers.clear(); pinch = null; last = null;
+    brush = { ...idleBrush }; pendingBrush = null; $('#brush-cursor').classList.remove('visible');
     if (!previous) { warmup = 1200; iterations = 0; }
     $('#engine-status').textContent = engine.backend; $('#loading').hidden = true;
     const select = $<HTMLSelectElement>('#backend'); select.options[0].textContent = `Auto · ${engine.backend}`;
     if (backend !== 'auto') select.value = engine.backend === 'WebGPU' ? 'webgpu' : 'webgl';
-    renderNeeded = true;
+    updateResolutionUI(); updateSpecimenLabel(); renderNeeded = true;
+    return true;
   } catch (error) {
-    $('#loading-text').textContent = error instanceof Error ? error.message : 'Could not start the GPU.'; $('#engine-status').textContent = 'GPU unavailable';
-  } finally { switching = false; $<HTMLSelectElement>('#backend').disabled = false; }
+    candidate?.destroy();
+    if (canvas !== previousCanvas) canvas.replaceWith(previousCanvas);
+    engine = previousEngine;
+    if (engine) {
+      sizeCanvas(previousCanvas); $('#loading').hidden = true;
+      $('#engine-status').textContent = engine.backend;
+      if (backend !== 'auto') $<HTMLSelectElement>('#backend').value = engine.backend === 'WebGPU' ? 'webgpu' : 'webgl';
+      toast('Could not change the simulation. Try a lower resolution or another compute engine.');
+    } else {
+      $('#loading-text').textContent = error instanceof Error ? error.message : 'Could not start the GPU. Try a lower base resolution.';
+      $('#engine-status').textContent = 'GPU unavailable';
+    }
+    console.error(error); updateResolutionUI();
+    return false;
+  } finally {
+    switching = false;
+    $<HTMLSelectElement>('#backend').disabled = false;
+    $<HTMLSelectElement>('#resolution').disabled = false;
+  }
 }
 $('#backend').addEventListener('change', e => void initialize((e.target as HTMLSelectElement).value));
+$('#resolution').addEventListener('change', async e => {
+  const next = parseResolution((e.target as HTMLSelectElement).value);
+  if (next === resolution || switching || exporting) { updateResolutionUI(); return; }
+  if (await initialize($<HTMLSelectElement>('#backend').value, next)) {
+    toast(`${resolution}× base resolution. ${resolution === 1 ? 'Default GPU workload.' : `${resolution * resolution}× as many cells; performance depends on your device.`}`);
+  }
+});
 
 let lastTime = 0, frames = 0, fpsTime = 0;
 function frame(time: number) {
@@ -410,7 +475,7 @@ function frame(time: number) {
   // Limit submission to 60 Hz so high refresh displays do not change the evolution speed.
   if (time - lastTime < 15) return; lastTime = time;
   try {
-    if (warmup > 0 && running) { const steps = Math.min(80, warmup); engine.step(params, steps); warmup -= steps; iterations += steps; renderNeeded = true; }
+    if (warmup > 0 && running) { const steps = Math.min(Math.max(1, Math.floor(80 / (resolution * resolution))), warmup); engine.step(params, steps); warmup -= steps; iterations += steps; renderNeeded = true; }
     else if (running || drawing || pendingBrush) { const steps = running ? speed : 1; engine.step(params, steps, pendingBrush ?? brush); pendingBrush = null; iterations += steps; renderNeeded = true; }
     if (renderNeeded) { engine.render(palette, threshold, zoom, pan); renderNeeded = false; }
     if (!fpsTime) fpsTime = time;
@@ -423,14 +488,15 @@ function frame(time: number) {
 function closeExport() { $('#export-menu').hidden = true; $('#export-toggle').setAttribute('aria-expanded', 'false'); }
 $('#export-toggle').addEventListener('click', () => { const open = $('#export-menu').hidden; $('#export-menu').hidden = !open; $('#export-toggle').setAttribute('aria-expanded', String(open)); });
 document.addEventListener('click', e => { if (!(e.target as HTMLElement).closest('.export-wrap')) closeExport(); });
-async function exportPattern(format: 'png' | 'svg', scale = 4) {
+async function exportPattern(format: 'png' | 'svg', baseScale = 4) {
   if (!engine || exporting || switching) return; exporting = true; closeExport();
+  const source = engine; const { width, height } = source; const outputWidth = BASE_WIDTH * baseScale; const scale = outputWidth / width;
   const selectedPalette = { ...palette }; const selectedThreshold = threshold; const smooth = $<HTMLInputElement>('#svg-smooth').checked;
-  const filename = `morph-${presets[presetIndex].name.toLowerCase()}-${seed}${format === 'png' ? `-${WIDTH * scale}` : ''}.${format}`;
+  const filename = `morph-${presets[presetIndex].name.toLowerCase()}-${seed}${format === 'png' ? `-${outputWidth}` : ''}.${format}`;
   toast(format === 'svg' ? 'Tracing your pattern into shapes…' : 'Preparing your image…');
   try {
-    const data = await engine.read();
-    const blob = format === 'svg' ? new Blob([fieldToSVG(data, WIDTH, HEIGHT, selectedThreshold, selectedPalette, { smooth })], { type: 'image/svg+xml' }) : await fieldToPNG(data, WIDTH, HEIGHT, selectedThreshold, selectedPalette, scale);
+    const data = await source.read();
+    const blob = format === 'svg' ? new Blob([fieldToSVG(data, width, height, selectedThreshold, selectedPalette, { smooth })], { type: 'image/svg+xml' }) : await fieldToPNG(data, width, height, selectedThreshold, selectedPalette, scale);
     download(blob, filename); toast(`${format.toUpperCase()} exported.`);
   } catch (error) { console.error(error); toast('Export failed. Please try again.'); }
   finally { exporting = false; renderNeeded = true; }
@@ -446,7 +512,7 @@ async function copyText(text: string) {
 $('#export-link').addEventListener('click', async () => { closeExport(); toast((await copyText(shareURL())) ? 'Share link copied.' : 'Could not copy. Check the address bar after reloading.'); });
 $('#export-embed').addEventListener('click', () => {
   closeExport();
-  showDialog(`<h2>Embed this pattern</h2><p>Runs live on the viewer's GPU with the recipe, colors, and seed you have right now. Paste it into any page.</p>
+  showDialog(`<h2>Embed this pattern</h2><p>Runs live on the viewer's GPU with your current recipe, colors, seed, and ${resolution}× base resolution. Paste it into any page.</p>${resolution > 1 ? `<p>This base uses ${resolution * resolution}× as many cells as 1× and may run slower on visitors' devices.</p>` : ''}
     <div class="embed-options"><label class="select-field"><span>Use as</span><span class="select-wrap"><select id="embed-mode"><option value="inline">Inline block</option><option value="background">Full-page background</option></select>${icon('chevron')}</span></label>
     <label class="check-field"><input type="checkbox" id="embed-paint" checked/><span>Visitors can paint</span></label></div>
     <textarea id="embed-code" class="code-box" rows="7" readonly spellcheck="false"></textarea>
@@ -471,14 +537,20 @@ function renderSaved() {
   updateSpecimenLabel();
 }
 async function applySaved(p: SavedPreset) {
-  if (!engine || switching) { toast('Wait for the simulation to be ready, then try again.'); return; }
+  if (!engine || switching || exporting) { toast('Wait for the simulation to be ready, then try again.'); return; }
+  const savedResolution = parseResolution(p.resolution);
+  const savedSize = gridSize(savedResolution);
   const target = engine, revision = ++loadRevision;
   let snapshot: MorphSnapshot | undefined;
-  try { if (p.snapshotId) snapshot = await loadSnapshot(p.snapshotId, WIDTH, HEIGHT); }
+  try { if (p.snapshotId) snapshot = await loadSnapshot(p.snapshotId, savedSize.width, savedSize.height); }
   catch (error) { if (revision === loadRevision) { console.error(error); toast('Could not load the saved morph state. Your current pattern is unchanged.'); } return; }
   // A later selection, reseed, deletion, or engine switch wins over this read.
-  if (revision !== loadRevision || engine !== target || switching) return;
-  target.seed(snapshot?.field ?? makeSeed(WIDTH, HEIGHT, p.seed, p.seedMode));
+  if (revision !== loadRevision || engine !== target || switching || exporting) return;
+  if (savedResolution !== resolution) {
+    const switchRevision = loadRevision + 1;
+    if (!await initialize($<HTMLSelectElement>('#backend').value, savedResolution) || loadRevision !== switchRevision) return;
+  }
+  engine!.seed(snapshot?.field ?? makeSeed(width, height, p.seed, p.seedMode));
   params = { feed: p.feed, kill: p.kill, diffusionA: p.diffusionA, diffusionB: p.diffusionB }; seed = p.seed;
   presetIndex = Math.max(0, presets.findIndex(x => x.seed === p.seedMode));
   threshold = p.threshold; speed = p.speed;
@@ -509,13 +581,14 @@ $('#saved-list').addEventListener('click', e => {
 $('#saved-list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && !(e.target as HTMLElement).closest('button')) { const card = (e.target as HTMLElement).closest<HTMLElement>('[data-saved]'); const p = card && store.getState().saved.find(x => x.id === card.dataset.saved); if (p) { e.preventDefault(); void applySaved(p); } } });
 async function openSaveDialog() {
   if (embed || dialog.open) return;
-  if (!engine || switching) { toast('Wait for the simulation to be ready, then save again.'); return; }
+  if (!engine || switching || exporting) { toast('Wait for the simulation to be ready, then save again.'); return; }
   loadRevision++;
   const base = matchesPreset() ? presets[presetIndex].name : 'Experiment'; const count = store.getState().saved.length + 1;
   // Capture the field and settings together when Save current is clicked, before naming it.
-  const draft = { ...params, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed };
+  const draft = { ...params, resolution, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed };
   const view = { iterations, zoom, pan: { ...pan } };
-  const capture = engine.read().then(field => ({ version: 1 as const, width: WIDTH, height: HEIGHT, field, ...view }))
+  const { width, height } = engine;
+  const capture = engine.read().then(field => ({ version: 1 as const, width, height, field, ...view }))
     .catch(error => { console.error(error); return null; });
   showDialog(`<h2>Save this version</h2><p>Keeps the current morph, including painted changes, along with the recipe and view. Restores paused so you can continue from this exact shape.</p>
     <label class="select-field" for="preset-name"><span>Name</span></label><input id="preset-name" class="text-input" type="text" maxlength="40" value="${escapeHTML(`${base} ${count}`)}" autocomplete="off" spellcheck="false"/>
@@ -532,7 +605,7 @@ async function openSaveDialog() {
       const snapshot = await capture;
       if (!snapshot) throw new Error('Could not read the current morph state.');
       let art: string | undefined;
-      try { art = fieldToThumbnail(snapshot.field, WIDTH, HEIGHT, draft.threshold, { name: 'Saved', background: draft.background, foreground: draft.foreground }); } catch { /* Thumbnail is optional. */ }
+      try { art = fieldToThumbnail(snapshot.field, snapshot.width, snapshot.height, draft.threshold, { name: 'Saved', background: draft.background, foreground: draft.foreground }); } catch { /* Thumbnail is optional. */ }
       snapshotId = await saveSnapshot(snapshot);
       store.getState().savePreset({ name, ...draft, art, snapshotId });
       // Do not close a different dialog opened while the write was pending.
@@ -574,7 +647,7 @@ document.addEventListener('keydown', e => {
   // focus for Tab / Enter, but cannot swallow canvas shortcuts after a click.
   const target = e.target instanceof HTMLElement ? e.target : null;
   if (target?.isContentEditable || target?.closest('input:not([type="range"]):not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]),textarea,[role="textbox"]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  const key = e.key.toLowerCase(); const nudge = 24 / zoom;
+  const key = e.key.toLowerCase(); const nudge = 24 * resolution / zoom;
   if (e.code === 'Space') { e.preventDefault(); setRunning(!running); }
   else if (key === 'b') setTool('brush'); else if (key === 'e') setTool('eraser'); else if (key === 'v') setTool('hand');
   else if (key === 'r') $('#reseed').click(); else if (key === 's') $('#surprise').click();
@@ -595,6 +668,6 @@ document.addEventListener('keydown', e => {
 window.addEventListener('blur', () => { drawing = false; panning = false; pointers.clear(); pinch = null; brush = { ...idleBrush }; });
 
 // ---------- Boot ----------
-renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); setTool('brush'); setZoom(zoom);
+updateResolutionUI(); renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); setTool('brush'); setZoom(zoom);
 if (embed && !interactive) $('#simulation').style.pointerEvents = 'none';
 void initialize(); requestAnimationFrame(frame);

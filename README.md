@@ -24,11 +24,11 @@ npm run preview
 The canvas fills the window. Everything else floats over it and can be hidden.
 
 - **Specimens** (right panel): pick a starting recipe, or press 1–7. **Surprise me** picks a random specimen, seed, and palette.
-- **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, or compute engine.
+- **Recipe** (left panel): change feed, kill, or either diffusion rate. Click a number to type an exact value, or scroll over a slider to nudge it one step at a time (Shift for ten). Tiny changes can produce very different worlds. Pick a palette or set your own two colors, then adjust pattern weight, evolution speed, base resolution, or compute engine. Base resolution offers 1×, 2×, 3×, and 4× grids. The higher settings use 4×, 9×, and 16× as many cells, with more GPU work and memory use, so they may run slower on some devices.
 - **Toolbar** (bottom): play, pause, step, paint, erase, move, brush size, zoom, and reseed.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
-- **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current morph under a name, including live knob adjustments and painted changes, plus the recipe, colors, weight, speed, seed, zoom, and position. The field is captured when you open Save current. Loading restores that exact field paused; press play to continue growing. Full-precision chemical fields live in your browser's IndexedDB, with recipe metadata and thumbnails in local storage. Older recipe-only saves still regrow from their seeds.
+- **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current morph under a name, including live knob adjustments and painted changes, plus the recipe, colors, weight, speed, base resolution, seed, zoom, and position. The field is captured when you open Save current. Loading restores that exact field paused; press play to continue growing. Full-precision chemical fields live in your browser's IndexedDB, with recipe metadata and thumbnails in local storage. Older recipe-only saves still regrow from their seeds.
 - Press **H** to hide the whole interface and watch the pattern. Press **[** or **]** to toggle a single panel. Panel state is remembered.
 - Press **?** for all shortcuts.
 - Canvas shortcuts also work while a button, slider, or dropdown has focus. Space plays or pauses and arrow keys move the view. Text fields and dialogs keep their normal keys; use arrow keys inside an exact-value field or scroll over a slider to fine-tune it.
@@ -37,12 +37,12 @@ Some parameter combinations produce a uniform field. That is a valid equilibrium
 
 ## GPU simulation
 
-The simulation uses the Gray–Scott equations on a 512 × 320 periodic grid. A nine-point Laplacian weights the center −1, cardinal neighbors 0.2, and diagonal neighbors 0.05. Both engines use a time step of 1 and the same seeded chemical field.
+The simulation uses the Gray–Scott equations on a periodic grid. The default 1× grid is 512 × 320; 2× is 1024 × 640, 3× is 1536 × 960, and 4× is 2048 × 1280. A nine-point Laplacian weights the center −1, cardinal neighbors 0.2, and diagonal neighbors 0.05. Both engines use a time step of 1 and the same seeded chemical field.
 
 - **WebGPU:** WGSL compute shaders alternate between two storage buffers. A fragment shader interpolates the field and applies the palette.
 - **WebGL 2:** GLSL fragment shaders alternate between two RG32F framebuffer textures. This requires `EXT_color_buffer_float`.
 
-Simulation and canvas rendering stay on the GPU. Seed creation, saving and restoring versions, and export processing use the CPU. Changing engines preserves the current chemical field when the old device is still readable. The view preserves pattern proportions and crops to fit its container; zoom and cropping do not change the chemistry.
+Simulation and canvas rendering stay on the GPU. Seed creation, saving and restoring versions, and export processing use the CPU. Changing engines preserves the current chemical field when the old device is still readable. Changing base resolution resamples both chemicals across the wrapping edges and keeps the current view and brush size. Continuing the simulation on a larger grid can grow finer patterns; lowering resolution loses some detail. The view preserves pattern proportions and crops to fit its container; zoom and cropping do not change the chemistry.
 
 The presets start with a short accelerated growth phase. Reseed starts from fresh seeds so you can watch the full evolution. Browser visibility pauses GPU submissions.
 
@@ -50,12 +50,12 @@ Model reference: [Karl Sims' reaction–diffusion tutorial](https://www.karlsims
 
 ## Export
 
-- **PNG:** 2048 × 1280 or 4096 × 2560 images of the full chemical field using the current colors and pattern weight. They are smoothed 4× and 8× enlargements of the simulation grid.
+- **PNG:** 2048 × 1280 or 4096 × 2560 images of the full chemical field using the current colors and pattern weight. Output dimensions stay the same at every base resolution. The default grid uses smoothed 4× and 8× enlargements; higher base resolutions supply more simulation cells to the same output sizes.
 - **SVG:** Real vector contours extracted with marching squares through `d3-contour`. Every blob is its own `<path>` inside a `pattern` group, with holes kept in the same path, so shapes stay selectable in Figma, Illustrator, or Inkscape. Contours are smoothed into cubic curves by default; untick **Smooth curves** for the raw marching-squares polygons. SVG is a two-color interpretation of the field, without the canvas's soft transitions.
 - **Embed:** An `<iframe>` snippet that runs the simulation live on the viewer's GPU with the current recipe, colors, seed, and zoom. Choose an inline block or a full-page background, and whether visitors can paint.
 - **Share link:** A URL that opens the lab in the current state.
 
-Both image exports capture the full field, independent of viewport position or zoom. Neither includes the interface. Larger, smoother PNG output does not add simulation detail.
+Both image exports capture the full field, independent of viewport position or zoom. Neither includes the interface. Enlarging a PNG does not add simulation detail; a higher base resolution gives the evolving field more cells.
 
 ### URL parameters
 
@@ -69,6 +69,7 @@ The lab reads its state from the query string, which is what share links and emb
 | `bg`, `fg` | Background and pattern colors as six-digit hex without `#` |
 | `w` | Pattern weight threshold, 0.08–0.3 |
 | `s` | Evolution speed, 1–48 steps per frame |
+| `r` | Base resolution multiplier, 1, 2, 3, or 4; defaults to 1 |
 | `seed` | Seed for the initial field |
 | `z` | Zoom, 0.25–6 |
 | `embed` | Hide the interface entirely |
