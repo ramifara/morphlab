@@ -12,7 +12,7 @@ export interface Engine {
 }
 
 const computeWGSL = `
-struct Params { size: vec2f, feed: f32, kill: f32, da: f32, db: f32, dt: f32, pad: f32, brush: vec4f }
+struct Params { size: vec2f, feed: f32, kill: f32, da: f32, db: f32, dt: f32, amount: f32, brush: vec4f }
 @group(0) @binding(0) var<storage, read> input: array<vec2f>;
 @group(0) @binding(1) var<storage, read_write> output: array<vec2f>;
 @group(0) @binding(2) var<uniform> p: Params;
@@ -31,7 +31,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var next = clamp(c + vec2f(p.da*lap.x - reaction + p.feed*(1.-c.x), p.db*lap.y + reaction - (p.kill+p.feed)*c.y) * p.dt, vec2f(0), vec2f(1));
   let d = abs(vec2f(id.xy) - p.brush.xy); let dw = min(d, p.size - d);
   if (p.brush.w != 0. && length(dw) < p.brush.z) {
-    next = select(vec2f(1,0), vec2f(.5,.25), p.brush.w > 0.);
+    next = select(vec2f(1,0), vec2f(.5,p.amount), p.brush.w > 0.);
   }
   output[id.y * u32(p.size.x) + id.x] = next;
 }`;
@@ -98,7 +98,7 @@ export class WebGPUEngine implements Engine {
   }
   seed(data: Float32Array) { for (const buffer of this.buffers) this.device.queue.writeBuffer(buffer, 0, data as Float32Array<ArrayBuffer>); this.index = 0; }
   step(p: Parameters, iterations: number, brush = idleBrush) {
-    this.device.queue.writeBuffer(this.params,0,new Float32Array([this.width,this.height,p.feed,p.kill,p.diffusionA,p.diffusionB,1,0,brush.x,brush.y,brush.radius,brush.mode]));
+    this.device.queue.writeBuffer(this.params,0,new Float32Array([this.width,this.height,p.feed,p.kill,p.diffusionA,p.diffusionB,1,brush.amount,brush.x,brush.y,brush.radius,brush.mode]));
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass(); pass.setPipeline(this.compute);
     for (let i = 0; i < iterations; i++) { pass.setBindGroup(0,this.groups[this.index]); pass.dispatchWorkgroups(Math.ceil(this.width/8),Math.ceil(this.height/8)); this.index = 1-this.index; }
@@ -131,6 +131,7 @@ uniform sampler2D cells;
 uniform vec2 size;
 uniform vec4 params;
 uniform vec4 brush;
+uniform float amount;
 out vec4 result;
 vec2 at(ivec2 q) { ivec2 s = ivec2(size); return texelFetch(cells,(q+s)%s,0).rg; }
 void main() {
@@ -140,7 +141,7 @@ void main() {
   float reaction = c.x*c.y*c.y;
   vec2 n = clamp(c + vec2(params.z*lap.x-reaction+params.x*(1.-c.x),params.w*lap.y+reaction-(params.x+params.y)*c.y),0.,1.);
   vec2 d = abs(vec2(q)-brush.xy); vec2 dw = min(d,size-d);
-  if (brush.w != 0. && length(dw)<brush.z) n = brush.w>0. ? vec2(.5,.25) : vec2(1,0);
+  if (brush.w != 0. && length(dw)<brush.z) n = brush.w>0. ? vec2(.5,amount) : vec2(1,0);
   result = vec4(n,0,1);
 }`;
 const renderGL = `#version 300 es
@@ -209,6 +210,7 @@ export class WebGLEngine implements Engine {
     const gl = this.gl; gl.useProgram(this.programs[0]); gl.viewport(0,0,this.width,this.height);
     gl.uniform1i(this.loc(0,'cells'),0); gl.uniform2f(this.loc(0,'size'),this.width,this.height);
     gl.uniform4f(this.loc(0,'params'),p.feed,p.kill,p.diffusionA,p.diffusionB); gl.uniform4f(this.loc(0,'brush'),brush.x,brush.y,brush.radius,brush.mode);
+    gl.uniform1f(this.loc(0,'amount'),brush.amount);
     for (let i = 0; i < iterations; i++) { gl.bindFramebuffer(gl.FRAMEBUFFER,this.frames[1-this.index]); gl.bindTexture(gl.TEXTURE_2D,this.textures[this.index]); gl.drawArrays(gl.TRIANGLES,0,3); this.index = 1-this.index; }
   }
   render(palette: Palette, threshold: number, zoom: number, pan: View) {

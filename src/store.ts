@@ -1,13 +1,15 @@
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Resolution } from './resolution';
+import type { SeedMode, StartSettings } from './model';
 
 /** Saved recipe metadata. New saves reference a full chemical field in IndexedDB. */
 export interface SavedPreset {
   id: string; name: string; createdAt: number;
   feed: number; kill: number; diffusionA: number; diffusionB: number;
   background: string; foreground: string; threshold: number; speed: number;
-  seed: number; seedMode: 'scatter' | 'center';
+  seed: number; seedMode: SeedMode;
+  start?: StartSettings;
   /** Older saves use the original 1× grid. */
   resolution?: Resolution;
   /** Small data URL captured from the field when saved. */

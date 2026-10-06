@@ -1,6 +1,8 @@
 import './style.css';
 import { icon, mark } from './icons';
-import { palettes, presets, makeSeed, idleBrush, type Parameters, type Brush, type Palette, type View } from './model';
+import { palettes, presets, makeSeed, addSeeds, defaultStart, seedModes, seedCount, idleBrush, type SeedMode, type Parameters, type Brush, type Palette, type View } from './model';
+import { readStart, writeStart, normalizeStart } from './start';
+import { imageMask, IMAGE_WIDTH, IMAGE_HEIGHT } from './seed-image';
 import { WebGPUEngine, WebGLEngine, type Engine } from './engine';
 import { download, fieldToPNG, fieldToSVG, fieldToThumbnail } from './export';
 import { createAppStore, type SavedPreset } from './store';
@@ -33,16 +35,21 @@ const hex = (key: string, fallback: string) => { const v = query.get(key) ?? '';
   ({ width, height } = gridSize(resolution));
   presetIndex = Math.round(num('p', 0, 0, presets.length - 1));
   params = { feed: num('f', presets[presetIndex].feed, .005, .095), kill: num('k', presets[presetIndex].kill, .03, .075), diffusionA: num('da', 1, .1, 1), diffusionB: num('db', .5, .05, .8) };
-  seed = Math.round(num('seed', 42, 0, 1e9)); threshold = num('w', .19, .08, .3); speed = Math.round(num('s', 16, 1, 48)); zoom = num('z', 1, ZOOM_MIN, ZOOM_MAX);
+  seed = Math.round(num('seed', 42, 0, 4294967295)); threshold = num('w', .19, .08, .3); speed = Math.round(num('s', 16, 1, 48)); zoom = num('z', 1, ZOOM_MIN, ZOOM_MAX);
   palette = { name: 'Custom', background: hex('bg', palettes[0].background), foreground: hex('fg', palettes[0].foreground) };
   paletteIndex = palettes.findIndex(p => p.background === palette.background && p.foreground === palette.foreground);
   if (paletteIndex >= 0) palette.name = palettes[paletteIndex].name;
 }
+let start = readStart(query, presets[presetIndex].seed);
+let imagePixels: Uint8ClampedArray | null = null;
+let imageRevision = 0, addingSeeds = false;
+const startNames: Record<SeedMode, string> = { empty: 'Empty canvas', scatter: 'Scattered dots', center: 'Cluster', spot: 'Single spot', ring: 'Ring', line: 'Line', grid: 'Grid', image: 'From an image' };
 function stateParams() {
   const q = new URLSearchParams();
   q.set('p', String(presetIndex)); q.set('f', params.feed.toFixed(4)); q.set('k', params.kill.toFixed(4)); q.set('da', params.diffusionA.toFixed(2)); q.set('db', params.diffusionB.toFixed(2));
   q.set('bg', palette.background.slice(1)); q.set('fg', palette.foreground.slice(1)); q.set('w', threshold.toFixed(3)); q.set('s', String(speed)); q.set('seed', String(seed));
   if (resolution !== 1) q.set('r', String(resolution));
+  writeStart(q, start);
   if (zoom !== 1) q.set('z', zoom.toFixed(2));
   return q;
 }
@@ -71,6 +78,7 @@ function slider(id: string, label: string, symbol: string, value: number, min: n
 const section = (n: string, title: string, body: string, extra = '') =>
   `<details class="section" open><summary><span class="section-n">${n}</span><span class="section-title">${title}</span>${extra}${icon('chevron', 'section-chevron')}</summary><div class="section-body">${body}</div></details>`;
 const menuItem = (id: string, label: string, note: string, type: string) => `<button id="${id}"><span>${label}<small>${note}</small></span><span class="file-type">${type}</span></button>`;
+const startSlider = (key: string, label: string, min: number, max: number, step: number, value: number) => `<div class="field"><div class="field-head"><label for="start-${key}">${label}</label><output id="start-${key}-value" for="start-${key}"></output></div><input type="range" id="start-${key}" min="${min}" max="${max}" step="${step}" value="${value}"/></div>`;
 
 $('#app').innerHTML = `
 <div class="app" id="app-root" data-hud="${hudVisible ? 'on' : 'off'}" data-embed="${embed}" data-tool="${tool}">
@@ -114,12 +122,34 @@ $('#app').innerHTML = `
   <aside class="hud dock dock-left panel" id="dock-left" data-open="${docks.left}" aria-label="Recipe">
     <div class="dock-head"><span class="dock-title">${icon('sliders')} Recipe</span><button class="icon-button small" id="reset-params" title="Reset recipe" aria-label="Reset recipe">${icon('reset')}</button><button class="icon-button small dock-close" data-close="left" aria-label="Close panel">${icon('close')}</button></div>
     <div class="dock-scroll">
-      ${section('01', 'Reaction',
+      ${section('01', 'Starting field',
+        `<label class="select-field start-mode" for="start-mode"><span>Start with</span><span class="select-wrap"><select id="start-mode">${seedModes.map(mode => `<option value="${mode}">${startNames[mode]}</option>`).join('')}</select>${icon('chevron')}</span></label>
+         <div class="start-preview"><canvas id="start-preview" width="256" height="160" aria-label="Preview of the starting chemical field"></canvas><span id="start-preview-note">Initial field</span></div>
+         <div class="start-image" id="start-image" hidden>
+           <label class="image-upload" for="seed-image">${icon('plus')}<span id="image-name">Choose an image</span><input id="seed-image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"/></label>
+           <p class="field-hint">Logos and bold shapes work well. Transparent areas stay empty. Images stay in your browser.</p>
+           <div id="image-cutoff-controls" hidden>${startSlider('cutoff', 'Image cutoff', 0, 1, .01, .5)}<label class="check-field"><input id="image-light" type="checkbox"/><span>Seed light areas</span></label></div>
+         </div>
+         <div id="start-seeded">
+           <label class="seed-number" for="seed-number"><span>Seed number</span><input id="seed-number" type="text" inputmode="numeric" pattern="[0-9]+" value="${seed}" aria-describedby="seed-number-hint"/></label>
+           <p class="field-hint" id="seed-number-hint">Same number and settings, same starting field.</p>
+         </div>
+         <details class="start-tuning"><summary>Size, amount & position ${icon('chevron')}</summary>
+         <div id="start-dots"><div id="start-count-field">${startSlider('count', 'Seed count', 1, 1000, 1, start.count)}</div>${startSlider('radius', 'Seed size', 1, 30, 1, start.radius)}</div>
+         <div id="start-image-size">${startSlider('imageScale', 'Image size', .1, 1, .01, start.imageScale)}</div>
+         ${startSlider('amount', 'Chemical B amount', .05, .8, .01, start.amount)}
+         <p class="field-hint">Used by seeds and the paint brush. Feed below controls the ongoing reaction.</p>
+         <div id="start-position"><label class="select-field" for="start-position-preset"><span>Position in the field</span><span class="select-wrap"><select id="start-position-preset"><option value=".5,.5">Center</option><option value=".08,.08">Top left</option><option value=".92,.08">Top right</option><option value=".08,.92">Bottom left</option><option value=".92,.92">Bottom right</option><option value=".5,.08">Top edge</option><option value=".5,.92">Bottom edge</option><option value=".08,.5">Left edge</option><option value=".92,.5">Right edge</option><option value="custom">Custom</option></select>${icon('chevron')}</span></label><div class="pair">${startSlider('x', 'Horizontal', 0, 1, .01, start.x)}${startSlider('y', 'Vertical', 0, 1, .01, start.y)}</div></div>
+         </details>
+         <div id="start-playback"><label class="check-field"><input id="start-grown" type="checkbox"/><span>Preview grown pattern</span></label><label class="check-field"><input id="start-paused" type="checkbox"/><span>Start paused</span></label></div>
+         <div class="start-actions"><button class="primary-button" id="restart-seed">${icon('reset')}<span>Restart seed</span></button><button class="text-button" id="new-seed">${icon('shuffle')} New seed</button><button class="text-button" id="add-seeds">${icon('plus')} Add seeds</button><button class="text-button" id="clear-field">${icon('eraser')} Clear canvas</button></div>
+         <p class="field-hint" id="start-hint">Changes apply when you restart or add seeds.</p>`)}
+      ${section('02', 'Reaction',
         slider('feed', 'Feed', 'f', params.feed, .005, .095, .0001, 'How much chemical A enters the system.') +
         slider('kill', 'Kill', 'k', params.kill, .03, .075, .0001, 'How quickly chemical B fades away.') +
         `<div class="pair">${slider('diffusionA', 'Diffusion A', '', params.diffusionA, .1, 1, .001)}${slider('diffusionB', 'Diffusion B', '', params.diffusionB, .05, .8, .001)}</div>`,
         `<button class="help-button" id="reaction-help" aria-label="About reaction parameters">${icon('info')}</button>`)}
-      ${section('02', 'Appearance',
+      ${section('03', 'Appearance',
         `<div class="palettes" role="group" aria-label="Color palette">${palettes.map((p, i) => `<button class="palette" data-palette="${i}" title="${p.name}" aria-label="${p.name} palette" aria-pressed="false" style="--swatch-bg:${p.background};--swatch-fg:${p.foreground}"><span></span></button>`).join('')}</div>
          <div class="colors">
            <label class="color-field"><input type="color" id="color-bg" value="${palette.background}" aria-label="Background color"/><span class="color-swatch" id="swatch-bg"></span><span class="color-meta"><span>Background</span><code id="color-bg-hex">${palette.background}</code></span></label>
@@ -128,7 +158,7 @@ $('#app').innerHTML = `
          </div>
          <div class="field compact"><div class="field-head"><label for="threshold">Pattern weight</label><output for="threshold" id="threshold-value">50%</output></div><input type="range" id="threshold" min="0.08" max="0.3" step="0.005" value="${threshold}"/></div>`,
         `<span class="section-note" id="palette-name">${palette.name}</span>`)}
-      ${section('03', 'Simulation',
+      ${section('04', 'Simulation',
         `<div class="field compact"><div class="field-head"><label for="speed">Evolution speed</label><output for="speed" id="speed-value">1×</output></div><input type="range" id="speed" min="1" max="48" step="1" value="${speed}"/><div class="range-labels"><span>Unhurried</span><span>Impatient</span></div></div>
          <label class="select-field" for="resolution"><span>Base resolution</span><span class="select-wrap"><select id="resolution" aria-describedby="resolution-hint">${resolutions.map(r => { const size = gridSize(r); return `<option value="${r}" ${r === resolution ? 'selected' : ''}>${r}× · ${size.width} × ${size.height}${r === 1 ? ' · Default' : ''}</option>`; }).join('')}</select>${icon('chevron')}</span></label>
          <p class="field-hint resolution-hint" id="resolution-hint" aria-live="polite"></p>
@@ -240,13 +270,20 @@ for (const key of Object.keys(params) as (keyof Parameters)[]) $(`#${key}`).addE
   params[key] = Number((e.target as HTMLInputElement).value); updateSliders(); updateSpecimenLabel();
 });
 
-function reseed(prepare = false) {
+function reseed(prepare = start.grown) {
   if (!engine || switching || exporting) return;
   loadRevision++;
-  engine.seed(makeSeed(width, height, seed, presets[presetIndex].seed)); iterations = 0; warmup = prepare ? 1200 : 0; renderNeeded = true;
+  engine.seed(makeStartField()); iterations = 0; warmup = prepare && !start.paused && start.mode !== 'empty' ? 1200 : 0; renderNeeded = true;
+  drawing = false; pendingBrush = null; brush = { ...idleBrush };
+  $('#iteration-count').textContent = '0'; setRunning(start.mode !== 'empty' && !start.paused);
+}
+function makeStartField(settings = start, seedNumber = seed, targetWidth = width, targetHeight = height) {
+  const scale = targetWidth / BASE_WIDTH;
+  return makeSeed(targetWidth, targetHeight, seedNumber, settings.mode, { ...settings, radius: settings.radius * scale, spread: 26 * scale });
 }
 function setPreset(index: number, randomSeed = false) {
   if (switching || exporting) return;
+  imageRevision++;
   presetIndex = index; const preset = presets[index];
   params = { feed: preset.feed, kill: preset.kill, diffusionA: 1, diffusionB: .5 }; if (randomSeed) seed = Math.floor(Math.random() * 1e9);
   updateSliders(); updateSpecimenLabel();
@@ -257,15 +294,145 @@ function setPreset(index: number, randomSeed = false) {
     if (look.speed !== undefined) { speed = look.speed; const el = $<HTMLInputElement>('#speed'); el.value = String(speed); updateRange(el); updateSpeedLabel(); }
     if (look.zoom !== undefined) { setZoom(look.zoom); setPan(0, 0); }
   }
-  reseed(true);
+  updateStart(); reseed();
 }
 $$('[data-preset]').forEach(el => el.addEventListener('click', () => setPreset(Number(el.dataset.preset))));
 $('#reset-params').addEventListener('click', () => { setPreset(presetIndex); toast('Recipe restored.'); });
-$('#reseed').addEventListener('click', () => { if (switching || exporting) return; seed = Math.floor(Math.random() * 1e9); reseed(); toast('Fresh seeds planted.'); });
+$('#reseed').addEventListener('click', () => $('#new-seed').click());
 $('#surprise').addEventListener('click', () => {
   if (switching || exporting) return;
+  start = defaultStart('scatter');
   setPreset((presetIndex + 1 + Math.floor(Math.random() * (presets.length - 1))) % presets.length, true);
   setPalette(Math.floor(Math.random() * palettes.length)); setRunning(true); toast(`${presets[presetIndex].name} in ${palette.name.toLowerCase()}.`);
+});
+
+// ---------- Starting field ----------
+function drawStartPreview() {
+  const canvas = $<HTMLCanvasElement>('#start-preview'), context = canvas.getContext('2d')!;
+  const field = makeStartField();
+  const image = context.createImageData(canvas.width, canvas.height);
+  const color = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const background = color(palette.background), foreground = color(palette.foreground);
+  for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+    const b = field[(Math.floor(y / canvas.height * height) * width + Math.floor(x / canvas.width * width)) * 2 + 1];
+    const offset = (y * canvas.width + x) * 4;
+    for (let channel = 0; channel < 3; channel++) image.data[offset + channel] = b > 0 ? foreground[channel] : background[channel];
+    image.data[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  $('#start-preview-note').textContent = start.mode === 'empty' ? 'Empty · paint to begin' : start.mode === 'image' && !start.imageMask ? 'Choose an image to begin' : 'Initial field · before growth';
+}
+function updateStart() {
+  $<HTMLSelectElement>('#start-mode').value = start.mode;
+  $<HTMLInputElement>('#seed-number').value = String(seed);
+  const empty = start.mode === 'empty', image = start.mode === 'image';
+  $('#start-seeded').hidden = empty; $('#start-dots').hidden = image || empty;
+  $('#start-image-size').hidden = !image;
+  $('#start-count-field').hidden = start.mode === 'spot';
+  $('#start-position').hidden = empty || start.mode === 'scatter' || start.mode === 'grid';
+  $('#start-image').hidden = !image;
+  $('#image-cutoff-controls').hidden = !imagePixels;
+  $('#image-name').textContent = start.imageMask ? 'Replace image' : 'Choose an image';
+  $('#start-playback').hidden = empty;
+  $<HTMLInputElement>('#start-grown').checked = start.grown;
+  $<HTMLInputElement>('#start-paused').checked = start.paused;
+  $<HTMLInputElement>('#start-grown').disabled = start.paused;
+  $<HTMLButtonElement>('#restart-seed').disabled = image && !start.imageMask;
+  $('#restart-seed span').textContent = empty ? 'Start empty' : 'Restart seed';
+  $<HTMLButtonElement>('#new-seed').disabled = empty || (image && !start.imageMask);
+  $<HTMLButtonElement>('#add-seeds').disabled = empty || addingSeeds || (image && !start.imageMask);
+  $('#start-hint').textContent = empty ? 'Start empty clears and pauses. Paint, then press play. You can also choose a shape and add seeds.' : 'Restart replaces the field. Add seeds keeps the current pattern. Changes apply with either button.';
+  for (const key of ['count', 'radius', 'amount', 'x', 'y', 'imageScale'] as const) {
+    const el = $<HTMLInputElement>(`#start-${key}`); el.value = String(start[key]); updateRange(el);
+    $(`#start-${key}-value`).textContent = key === 'count' ? String(start[key]) : key === 'radius' ? `${start[key]} cells` : `${Math.round(start[key] * 100)}%`;
+  }
+  const position = $<HTMLSelectElement>('#start-position-preset');
+  position.value = [...position.options].find(option => option.value !== 'custom' && option.value.split(',').map(Number).every((n, i) => n === (i === 0 ? start.x : start.y)))?.value ?? 'custom';
+  drawStartPreview();
+}
+function readyToStart() {
+  if (!engine || switching || exporting) { toast('Wait for the simulation to be ready, then try again.'); return false; }
+  if (start.mode === 'image' && !start.imageMask) { toast('Choose an image first.'); return false; }
+  return true;
+}
+$('#start-mode').addEventListener('change', e => {
+  loadRevision++; imageRevision++;
+  start.mode = (e.target as HTMLSelectElement).value as SeedMode; start.count = seedCount(start.mode);
+  if (start.mode === 'image') { start.grown = false; start.paused = true; }
+  updateStart();
+});
+$('#seed-number').addEventListener('change', e => {
+  const input = e.target as HTMLInputElement, value = Number(input.value);
+  if (!/^\d+$/.test(input.value) || !Number.isSafeInteger(value) || value > 4294967295) {
+    input.value = String(seed); toast('Use a whole seed number from 0 to 4294967295.'); return;
+  }
+  seed = value; loadRevision++; drawStartPreview();
+});
+for (const key of ['count', 'radius', 'amount', 'x', 'y', 'imageScale'] as const) $(`#start-${key}`).addEventListener('input', e => {
+  loadRevision++; start[key] = Number((e.target as HTMLInputElement).value); updateStart();
+});
+$('#start-position-preset').addEventListener('change', e => {
+  const value = (e.target as HTMLSelectElement).value;
+  if (value === 'custom') return;
+  loadRevision++; [start.x, start.y] = value.split(',').map(Number); updateStart();
+});
+$('#start-grown').addEventListener('change', e => { start.grown = (e.target as HTMLInputElement).checked; });
+$('#start-paused').addEventListener('change', e => {
+  start.paused = (e.target as HTMLInputElement).checked;
+  if (start.paused) start.grown = false;
+  updateStart();
+});
+$('#restart-seed').addEventListener('click', () => {
+  if (!readyToStart()) return;
+  reseed(); toast(start.mode === 'empty' ? 'Empty canvas. Paint or add seeds, then press play.' : `Seed ${seed} restarted${start.paused ? '. Press play to grow.' : '.'}`);
+});
+$('#new-seed').addEventListener('click', () => {
+  if (!readyToStart() || start.mode === 'empty') return;
+  seed = crypto.getRandomValues(new Uint32Array(1))[0]; updateStart(); reseed(false); toast(`New seed ${seed}.`);
+});
+$('#clear-field').addEventListener('click', () => {
+  if (!engine || switching || exporting) return;
+  imageRevision++; start.mode = 'empty'; updateStart(); reseed(false); setTool('brush'); toast('Canvas cleared and paused. Paint to begin.');
+});
+$('#add-seeds').addEventListener('click', async () => {
+  if (!readyToStart() || start.mode === 'empty') return;
+  const target = engine!, revision = ++loadRevision, settings = { ...start }, seedNumber = seed;
+  exporting = true; addingSeeds = true; updateStart();
+  try {
+    const field = await target.read();
+    if (revision !== loadRevision || engine !== target || switching) return;
+    target.seed(addSeeds(field, makeStartField(settings, seedNumber)));
+    warmup = 0; drawing = false; pendingBrush = null; brush = { ...idleBrush }; renderNeeded = true;
+    toast(running ? 'Seeds added to the current pattern.' : 'Seeds added. Press play to grow.');
+  } catch (error) { console.error(error); toast('Could not add seeds. Try again.'); }
+  finally { exporting = false; addingSeeds = false; updateStart(); }
+});
+function updateImageMask() {
+  if (!imagePixels) return;
+  const cutoff = Number($<HTMLInputElement>('#start-cutoff').value);
+  $('#start-cutoff-value').textContent = `${Math.round(cutoff * 100)}%`;
+  start.imageMask = imageMask(imagePixels, cutoff, $<HTMLInputElement>('#image-light').checked);
+  loadRevision++; updateStart();
+}
+$('#start-cutoff').addEventListener('input', updateImageMask);
+$('#image-light').addEventListener('change', updateImageMask);
+$('#seed-image').addEventListener('change', async e => {
+  const input = e.target as HTMLInputElement, file = input.files?.[0];
+  if (!file) return;
+  const revision = ++imageRevision, url = URL.createObjectURL(file);
+  try {
+    const image = new Image(); image.src = url; await image.decode();
+    if (revision !== imageRevision) return;
+    const canvas = document.createElement('canvas'); canvas.width = IMAGE_WIDTH; canvas.height = IMAGE_HEIGHT;
+    const context = canvas.getContext('2d')!;
+    const scale = Math.min(IMAGE_WIDTH / image.naturalWidth, IMAGE_HEIGHT / image.naturalHeight);
+    const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+    context.drawImage(image, (IMAGE_WIDTH - width) / 2, (IMAGE_HEIGHT - height) / 2, width, height);
+    imagePixels = context.getImageData(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT).data;
+    start.mode = 'image'; start.grown = false; start.paused = true;
+    updateImageMask(); toast('Image ready. Adjust the cutoff, then restart or add it to the field.');
+  } catch (error) { console.error(error); toast('Could not read this image. Try a PNG, JPEG, or WebP.'); }
+  finally { URL.revokeObjectURL(url); input.value = ''; }
 });
 
 // ---------- Colors ----------
@@ -278,6 +445,7 @@ function applyPalette() {
   $('#color-bg-hex').textContent = palette.background; $('#color-fg-hex').textContent = palette.foreground;
   $$('.palette').forEach(el => { const active = Number(el.dataset.palette) === paletteIndex; el.classList.toggle('active', active); el.setAttribute('aria-pressed', String(active)); });
   updateSpecimenLabel();
+  drawStartPreview();
 }
 function setPalette(index: number) { paletteIndex = (index + palettes.length) % palettes.length; palette = { ...palettes[paletteIndex] }; applyPalette(); }
 function setColors(background: string, foreground: string) {
@@ -375,7 +543,8 @@ function attachCanvas() {
 }
 function paint(e: PointerEvent) {
   const g = toGrid(e.clientX, e.clientY);
-  brush = { x: wrap(g.x, width), y: wrap(g.y, height), radius: brushSize * resolution, mode: tool === 'eraser' || e.shiftKey ? -1 : 1 };
+  brush = { x: wrap(g.x, width), y: wrap(g.y, height), radius: brushSize * resolution, mode: tool === 'eraser' || e.shiftKey ? -1 : 1, amount: start.amount };
+  warmup = 0;
   // Preserve quick taps even when pointerup occurs before the next animation frame.
   pendingBrush = { ...brush };
   renderNeeded = true;
@@ -425,18 +594,18 @@ async function initialize(backend = 'auto', nextResolution: Resolution = resolut
     candidate ??= new WebGLEngine(canvas, nextSize.width, nextSize.height);
     candidate.seed(previous && previousEngine
       ? resizeField(previous, previousEngine.width, previousEngine.height, nextSize.width, nextSize.height)
-      : makeSeed(nextSize.width, nextSize.height, seed, presets[presetIndex].seed));
+      : makeStartField(start, seed, nextSize.width, nextSize.height));
     const scale = nextResolution / resolution;
     resolution = nextResolution; ({ width, height } = nextSize);
     setPan(pan.x * scale, pan.y * scale);
     engine = candidate; previousEngine?.destroy();
     drawing = false; panning = false; pointers.clear(); pinch = null; last = null;
     brush = { ...idleBrush }; pendingBrush = null; $('#brush-cursor').classList.remove('visible');
-    if (!previous) { warmup = 1200; iterations = 0; }
+    if (!previous) { warmup = start.grown && !start.paused && start.mode !== 'empty' ? 1200 : 0; iterations = 0; setRunning(start.mode !== 'empty' && !start.paused && (start.mode !== 'image' || !!start.imageMask)); }
     $('#engine-status').textContent = engine.backend; $('#loading').hidden = true;
     const select = $<HTMLSelectElement>('#backend'); select.options[0].textContent = `Auto · ${engine.backend}`;
     if (backend !== 'auto') select.value = engine.backend === 'WebGPU' ? 'webgpu' : 'webgl';
-    updateResolutionUI(); updateSpecimenLabel(); renderNeeded = true;
+    updateResolutionUI(); updateSpecimenLabel(); drawStartPreview(); renderNeeded = true;
     return true;
   } catch (error) {
     candidate?.destroy();
@@ -550,18 +719,20 @@ async function applySaved(p: SavedPreset) {
     const switchRevision = loadRevision + 1;
     if (!await initialize($<HTMLSelectElement>('#backend').value, savedResolution) || loadRevision !== switchRevision) return;
   }
-  engine!.seed(snapshot?.field ?? makeSeed(width, height, p.seed, p.seedMode));
+  start = normalizeStart(p.start ?? defaultStart(p.seedMode), p.seedMode);
+  imagePixels = null; imageRevision++;
+  engine!.seed(snapshot?.field ?? makeStartField(start, p.seed));
   params = { feed: p.feed, kill: p.kill, diffusionA: p.diffusionA, diffusionB: p.diffusionB }; seed = p.seed;
   presetIndex = Math.max(0, presets.findIndex(x => x.seed === p.seedMode));
   threshold = p.threshold; speed = p.speed;
   const t = $<HTMLInputElement>('#threshold'); t.value = String(threshold); updateRange(t); updateThresholdLabel();
   const s = $<HTMLInputElement>('#speed'); s.value = String(speed); updateRange(s); updateSpeedLabel();
-  updateSliders(); setColors(p.background, p.foreground);
-  iterations = snapshot?.iterations ?? 0; warmup = snapshot ? 0 : 1200;
+  updateSliders(); setColors(p.background, p.foreground); updateStart();
+  iterations = snapshot?.iterations ?? 0; warmup = !snapshot && start.grown && !start.paused && start.mode !== 'empty' ? 1200 : 0;
   drawing = false; pendingBrush = null; brush = { ...idleBrush };
   if (snapshot) { setZoom(snapshot.zoom); setPan(snapshot.pan.x, snapshot.pan.y); }
   $('#iteration-count').textContent = iterations.toLocaleString('en-US');
-  setRunning(!snapshot); renderNeeded = true;
+  setRunning(!snapshot && start.mode !== 'empty' && !start.paused); renderNeeded = true;
   toast(snapshot ? `${p.name} restored. Press play to keep growing.` : `${p.name} loaded from its seed.`);
 }
 async function deleteSaved(p: SavedPreset) {
@@ -585,7 +756,7 @@ async function openSaveDialog() {
   loadRevision++;
   const base = matchesPreset() ? presets[presetIndex].name : 'Experiment'; const count = store.getState().saved.length + 1;
   // Capture the field and settings together when Save current is clicked, before naming it.
-  const draft = { ...params, resolution, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: presets[presetIndex].seed };
+  const draft = { ...params, resolution, background: palette.background, foreground: palette.foreground, threshold, speed, seed, seedMode: start.mode, start: { ...start } };
   const view = { iterations, zoom, pan: { ...pan } };
   const { width, height } = engine;
   const capture = engine.read().then(field => ({ version: 1 as const, width, height, field, ...view }))
@@ -668,6 +839,6 @@ document.addEventListener('keydown', e => {
 window.addEventListener('blur', () => { drawing = false; panning = false; pointers.clear(); pinch = null; brush = { ...idleBrush }; });
 
 // ---------- Boot ----------
-updateResolutionUI(); renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); setTool('brush'); setZoom(zoom);
+updateResolutionUI(); renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); updateStart(); setTool('brush'); setZoom(zoom);
 if (embed && !interactive) $('#simulation').style.pointerEvents = 'none';
 void initialize(); requestAnimationFrame(frame);
