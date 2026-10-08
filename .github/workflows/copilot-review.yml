@@ -1,0 +1,31 @@
+# Copilot code review on request. Automatic review is off because every review
+# on a private repo bills GitHub Actions minutes. Comment `/copilot-review` on a
+# pull request when the work on it is finished to request one review.
+name: copilot-review
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  pull-requests: write
+  issues: write
+jobs:
+  request:
+    # Skipped jobs cost nothing, so other comments do not bill minutes.
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/copilot-review') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Request Copilot review
+        env:
+          # A user token is needed if the review must be billed to a Copilot seat;
+          # falls back to the workflow token.
+          GH_TOKEN: ${{ secrets.COPILOT_REVIEW_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/$GH_REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes >/dev/null || true
+          gh pr edit "$PR" --add-reviewer @copilot
