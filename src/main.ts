@@ -3,7 +3,8 @@ import { icon, mark } from './icons';
 import { palettes, presets, makeSeed, addSeeds, defaultStart, seedModes, seedCount, idleBrush, type SeedMode, type Parameters, type Brush, type Palette, type View } from './model';
 import { readStart, writeStart, normalizeStart } from './start';
 import { imageMask, IMAGE_WIDTH, IMAGE_HEIGHT } from './seed-image';
-import { WebGPUEngine, WebGLEngine, type Engine } from './engine';
+import { WebGPUEngine, WebGLEngine, type Engine, type ViewState } from './engine';
+import { LAYER_HEIGHT, LAYER_WIDTH, PeerRegistry, compositeLayer, mixHints, mixModes, mixNames, newestMix, parseMixMode, sameRect, sameState, stripToAB, viewportRect, type LinkMessage, type MixMode, type PeerState, type Rect } from './link';
 import { download, fieldToPNG, fieldToSVG, fieldToThumbnail } from './export';
 import { createAppStore, type SavedPreset } from './store';
 import { BASE_WIDTH, resolutions, parseResolution, gridSize, resizeField, type Resolution } from './resolution';
@@ -23,6 +24,7 @@ const pan: View = { x: 0, y: 0 };
 let engine: Engine | null = null, iterations = 0, warmup = 0, switching = false, drawing = false, panning = false, tool: Tool = 'brush', brushSize = 14;
 let loadRevision = 0;
 let brush: Brush = { ...idleBrush }, pendingBrush: Brush | null = null, renderNeeded = true, exporting = false;
+let mixMode: MixMode = 'melt', mixStrength = .6, mixChangedAt = 0;
 
 // ---------- URL state (share links and embeds) ----------
 const query = new URLSearchParams(location.search);
@@ -37,6 +39,7 @@ const hex = (key: string, fallback: string) => { const v = query.get(key) ?? '';
   params = { feed: num('f', presets[presetIndex].feed, .005, .095), kill: num('k', presets[presetIndex].kill, .03, .075), diffusionA: num('da', 1, .1, 1), diffusionB: num('db', .5, .05, .8) };
   seed = Math.round(num('seed', 42, 0, 4294967295)); threshold = num('w', .19, .08, .3); speed = Math.round(num('s', 16, 1, 48)); zoom = num('z', 1, ZOOM_MIN, ZOOM_MAX);
   palette = { name: 'Custom', background: hex('bg', palettes[0].background), foreground: hex('fg', palettes[0].foreground) };
+  mixMode = parseMixMode(query.get('mix'));
   paletteIndex = palettes.findIndex(p => p.background === palette.background && p.foreground === palette.foreground);
   if (paletteIndex >= 0) palette.name = palettes[paletteIndex].name;
 }
@@ -51,6 +54,7 @@ function stateParams() {
   if (resolution !== 1) q.set('r', String(resolution));
   writeStart(q, start);
   if (zoom !== 1) q.set('z', zoom.toFixed(2));
+  if (mixMode !== 'melt') q.set('mix', mixMode);
   return q;
 }
 const shareURL = () => `${location.origin}${location.pathname}?${stateParams()}`;
@@ -94,6 +98,7 @@ $('#app').innerHTML = `
     <a href="/" class="chip brand" aria-label="Morph Lab home"><span class="brand-mark">${mark}</span><span class="brand-text">MORPH<span>LAB</span></span></a>
     <div class="chip group"><button class="icon-button" id="toggle-left" title="Recipe panel · [" aria-label="Toggle recipe panel" aria-pressed="${docks.left}" aria-controls="dock-left">${icon('panelLeft')}</button></div>
     <div class="chip specimen"><span class="live-dot"></span><span id="specimen-name">Coral</span><span class="specimen-id" id="specimen-id">/ 001</span></div>
+    <button class="chip link-chip" id="link-chip" hidden title="Linked windows · open the Recipe panel" aria-label="Linked windows">${icon('windows')}<span class="link-dot"></span><span id="link-chip-text"></span></button>
     <div class="hud-spacer"></div>
     <div class="chip group">
       <div class="export-wrap">
@@ -163,6 +168,14 @@ $('#app').innerHTML = `
          <label class="select-field" for="resolution"><span>Base resolution</span><span class="select-wrap"><select id="resolution" aria-describedby="resolution-hint">${resolutions.map(r => { const size = gridSize(r); return `<option value="${r}" ${r === resolution ? 'selected' : ''}>${r}× · ${size.width} × ${size.height}${r === 1 ? ' · Default' : ''}</option>`; }).join('')}</select>${icon('chevron')}</span></label>
          <p class="field-hint resolution-hint" id="resolution-hint" aria-live="polite"></p>
          <label class="select-field" for="backend"><span>Compute engine</span><span class="select-wrap"><select id="backend"><option value="auto">Auto</option><option value="webgpu">WebGPU</option><option value="webgl">WebGL 2</option></select>${icon('chevron')}</span></label>`)}
+      ${section('05', 'Windows',
+        `<p class="field-hint link-intro">Run Morph Lab in several windows. Where they overlap on your screen, their patterns mix.</p>
+         <button class="primary-button link-open" id="open-window">${icon('windows')}<span>Open a linked window</span><kbd>N</kbd></button>
+         <label class="select-field" for="mix-mode"><span>When windows overlap</span><span class="select-wrap"><select id="mix-mode">${mixModes.map(m => `<option value="${m}">${mixNames[m]}</option>`).join('')}</select>${icon('chevron')}</span></label>
+         <p class="field-hint" id="mix-hint"></p>
+         <div class="field compact"><div class="field-head"><label for="mix-strength">Mixing strength</label><output for="mix-strength" id="mix-strength-value"></output></div><input type="range" id="mix-strength" min="0" max="1" step="0.05" value="${mixStrength}"/></div>
+         <p class="link-status" id="link-status" aria-live="polite"></p>`,
+        `<span class="section-note" id="link-count"></span>`)}
     </div>
   </aside>
 
@@ -599,7 +612,7 @@ async function initialize(backend = 'auto', nextResolution: Resolution = resolut
     const scale = nextResolution / resolution;
     resolution = nextResolution; ({ width, height } = nextSize);
     setPan(pan.x * scale, pan.y * scale);
-    engine = candidate; previousEngine?.destroy();
+    engine = candidate; previousEngine?.destroy(); applyLayer();
     drawing = false; panning = false; pointers.clear(); pinch = null; last = null;
     brush = { ...idleBrush }; pendingBrush = null; $('#brush-cursor').classList.remove('visible');
     if (!previous) { warmup = start.grown && !start.paused && start.mode !== 'empty' ? 1200 : 0; iterations = 0; setRunning(start.mode !== 'empty' && !start.paused && (start.mode !== 'image' || !!start.imageMask)); }
@@ -638,6 +651,96 @@ $('#resolution').addEventListener('change', async e => {
   }
 });
 
+// ---------- Linked windows ----------
+// Same-origin windows share their screen rectangles and a small capture of their
+// visible field over a BroadcastChannel. Where rectangles overlap, each window
+// composites the others into a layer the compute shader couples with.
+const linkable = !embed && window === window.top && 'BroadcastChannel' in window;
+const newLinkId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+const link = {
+  id: newLinkId(), channel: linkable ? new BroadcastChannel('morphlab-windows') : null,
+  rect: { x: 0, y: 0, w: 0, h: 0 } as Rect, focusedAt: Date.now(),
+  sent: null as PeerState | null, sentAt: -Infinity, capturedAt: 0, capturing: false, captureBroken: null as Engine | null,
+  layerDirty: false, overlapping: false, peerCount: 0, layer: new Uint8Array(LAYER_WIDTH * LAYER_HEIGHT * 4),
+};
+const registry = new PeerRegistry(link.id);
+const linkState = (): PeerState => ({ id: link.id, rect: { ...link.rect }, focusedAt: link.focusedAt, feed: params.feed, kill: params.kill, background: palette.background, foreground: palette.foreground, mix: mixMode, mixChangedAt });
+function post(message: LinkMessage) { try { link.channel?.postMessage(message); } catch (error) { console.warn('Could not reach the other windows.', error); } }
+function applyLayer() {
+  link.layerDirty = false;
+  if (!engine) return;
+  const { data, slots } = compositeLayer(link.rect, link.focusedAt, registry.peers(), link.layer);
+  engine.setCoupling({ layer: slots.length ? data : null, slots, mode: mixMode, strength: mixStrength });
+  renderNeeded = true;
+}
+function updateLinkUI() {
+  const peers = link.peerCount, { overlapping } = link;
+  $('#link-chip').hidden = !peers; $('#link-chip').classList.toggle('overlapping', overlapping);
+  $('#link-chip-text').textContent = `${peers + 1} windows`;
+  $('#link-count').textContent = peers ? `${peers + 1} linked` : '';
+  $('#link-status').classList.toggle('overlapping', overlapping);
+  $('#link-status').textContent = !linkable ? 'Linking works in a full browser window, not inside an embed.'
+    : !peers ? 'No other windows yet. Open one, then drag it over this one.'
+    : overlapping ? `Overlapping ${peers === 1 ? 'another window' : `${peers} windows`} · ${mixNames[mixMode].toLowerCase()}`
+    : `${peers} other window${peers === 1 ? '' : 's'} open. Drag them together to mix.`;
+}
+function setMix(mode: MixMode, at = Date.now(), announce = true) {
+  mixMode = mode; mixChangedAt = at;
+  $<HTMLSelectElement>('#mix-mode').value = mode; $('#mix-hint').textContent = mixHints[mode];
+  link.layerDirty = true; if (announce) link.sentAt = -Infinity;
+  updateLinkUI();
+}
+function linkTick(now: number) {
+  if (!link.channel) return;
+  const rect = viewportRect(window);
+  if (!sameRect(rect, link.rect)) { link.rect = rect; link.layerDirty = true; }
+  const state = linkState();
+  if (!link.sent || !sameState(state, link.sent) || now - link.sentAt > 500) { post({ type: 'state', state }); link.sent = state; link.sentAt = now; }
+  if (registry.expire(Date.now())) link.layerDirty = true;
+  const peers = registry.peers().length, overlapping = registry.overlapping(rect).length > 0;
+  if (peers !== link.peerCount || overlapping !== link.overlapping) { link.peerCount = peers; link.overlapping = overlapping; link.layerDirty = true; updateLinkUI(); }
+}
+async function shareField(view: ViewState, now: number) {
+  if (!engine || link.capturing || link.captureBroken === engine) return;
+  const target = engine, rect = { ...link.rect };
+  link.capturing = true; link.capturedAt = now;
+  try {
+    const rgba = await target.capture(view);
+    if (rgba && engine === target) post({ type: 'field', id: link.id, snapshot: { rect, width: LAYER_WIDTH, height: LAYER_HEIGHT, data: stripToAB(rgba) } });
+  } catch (error) { console.warn('Could not share the field with the other windows.', error); link.captureBroken = target; }
+  finally { link.capturing = false; }
+}
+function openLinkedWindow() {
+  if (!linkable) { toast('Linking works in a full browser window, not inside an embed.'); return; }
+  const q = new URLSearchParams();
+  q.set('p', String((presetIndex + 1 + Math.floor(Math.random() * (presets.length - 1))) % presets.length));
+  q.set('seed', String(crypto.getRandomValues(new Uint32Array(1))[0]));
+  const next = palettes[(paletteIndex + 1 + Math.floor(Math.random() * (palettes.length - 1))) % palettes.length];
+  q.set('bg', next.background.slice(1)); q.set('fg', next.foreground.slice(1));
+  q.set('w', threshold.toFixed(3)); q.set('s', String(speed)); if (resolution !== 1) q.set('r', String(resolution)); if (mixMode !== 'melt') q.set('mix', mixMode);
+  const features = `popup=yes,width=${innerWidth},height=${innerHeight},left=${screenX + 72},top=${screenY + 72}`;
+  if (!window.open(`${location.origin}${location.pathname}?${q}`, '_blank', features)) { toast('Allow pop-ups for this site to open a linked window.'); return; }
+  toast('Drag the new window over this one and watch the two patterns mix.');
+}
+if (link.channel) {
+  link.channel.onmessage = e => {
+    const message = e.data as LinkMessage;
+    if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
+    const known = message.type !== 'state' || registry.peers().some(p => p.id === message.state.id);
+    if (registry.receive(message, Date.now())) link.layerDirty = true;
+    // Introduce ourselves to a new window right away instead of waiting for the heartbeat.
+    if (!known) link.sentAt = -Infinity;
+    if (message.type === 'state') { const newest = newestMix([message.state, { mix: mixMode, mixChangedAt }]); if (newest && newest.mix !== mixMode) setMix(newest.mix, newest.mixChangedAt, false); }
+  };
+  window.addEventListener('focus', () => { link.focusedAt = Date.now(); link.layerDirty = true; });
+  window.addEventListener('pagehide', () => post({ type: 'leave', id: link.id }));
+}
+$('#open-window').addEventListener('click', openLinkedWindow);
+$('#link-chip').addEventListener('click', () => { setDock('left', true); $('#mix-mode').closest('.section')?.scrollIntoView({ block: 'nearest' }); });
+$('#mix-mode').addEventListener('change', e => setMix(parseMixMode((e.target as HTMLSelectElement).value)));
+const updateStrengthLabel = () => { $('#mix-strength-value').textContent = `${Math.round(mixStrength * 100)}%`; };
+$('#mix-strength').addEventListener('input', e => { mixStrength = Number((e.target as HTMLInputElement).value); updateStrengthLabel(); link.layerDirty = true; });
+
 let lastTime = 0, frames = 0, fpsTime = 0;
 function frame(time: number) {
   requestAnimationFrame(frame);
@@ -645,9 +748,13 @@ function frame(time: number) {
   // Limit submission to 60 Hz so high refresh displays do not change the evolution speed.
   if (time - lastTime < 15) return; lastTime = time;
   try {
-    if (warmup > 0 && running) { const steps = Math.min(Math.max(1, Math.floor(80 / (resolution * resolution))), warmup); engine.step(params, steps); warmup -= steps; iterations += steps; renderNeeded = true; }
-    else if (running || drawing || pendingBrush) { const steps = running ? speed : 1; engine.step(params, steps, pendingBrush ?? brush); pendingBrush = null; iterations += steps; renderNeeded = true; }
+    linkTick(time);
+    if (link.layerDirty) applyLayer();
+    const view: ViewState = { zoom, pan: { ...pan } };
+    if (warmup > 0 && running) { const steps = Math.min(Math.max(1, Math.floor(80 / (resolution * resolution))), warmup); engine.step(params, steps, undefined, view); warmup -= steps; iterations += steps; renderNeeded = true; }
+    else if (running || drawing || pendingBrush) { const steps = running ? speed : 1; engine.step(params, steps, pendingBrush ?? brush, view); pendingBrush = null; iterations += steps; renderNeeded = true; }
     if (renderNeeded) { engine.render(palette, threshold, zoom, pan); renderNeeded = false; }
+    if (link.overlapping && time - link.capturedAt > 33) void shareField(view, time);
     if (!fpsTime) fpsTime = time;
     frames++;
     if (time - fpsTime > 650) { if (running) $('#fps').textContent = `${Math.min(60, Math.round(frames * 1000 / (time - fpsTime)))} fps`; $('#iteration-count').textContent = iterations.toLocaleString('en-US'); frames = 0; fpsTime = time; }
@@ -799,7 +906,7 @@ store.subscribe((s, prev) => { if (s.saved !== prev.saved) renderSaved(); });
 const science = `<h2>How does a pattern grow itself?</h2><p>Two imaginary chemicals spread across the canvas. A feeds the reaction; B consumes A and slowly fades. Tiny differences grow into stripes, spots, and winding branches.</p><div class="equations"><div>∂A/∂t = D<sub>A</sub>∇²A − AB² + f(1 − A)</div><div>∂B/∂t = D<sub>B</sub>∇²B + AB² − (k + f)B</div></div><p>This is the <strong>Gray–Scott reaction–diffusion model</strong>, a relative of the mechanism Alan Turing proposed for biological pattern formation. The field wraps at its edges like a torus, which is why you can move across it endlessly.</p><div class="field-tip"><strong>Try this</strong><p>Choose Coral, lower the feed rate by a few ten-thousandths, then paint into the canvas. Click any number to type an exact value, or scroll over a slider to nudge it one step at a time. Small changes can make a completely different world.</p></div><p class="source-note">Model and stencil reference: <a href="https://www.karlsims.com/rd.html" target="_blank" rel="noopener noreferrer">Karl Sims' reaction–diffusion tutorial ↗</a></p>`;
 const shortcutRows: [string, string][] = [
   ['Play / pause', 'Space'], ['Paint chemical B', 'B'], ['Eraser', 'E'], ['Move around', 'V'], ['Temporarily erase', 'Shift + drag'], ['Temporarily move', 'Alt + drag / middle button'],
-  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it'], ['Fine-tune a typed value', '↑ / ↓ while editing'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Save version', '⌘ S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
+  ['Brush size', ', / .'], ['Fine-tune a slider', 'Scroll over it'], ['Fine-tune a typed value', '↑ / ↓ while editing'], ['Exact value', 'Click the number'], ['Plant fresh seeds', 'R'], ['Surprise me', 'S'], ['Open a linked window', 'N'], ['Save version', '⌘ S'], ['Choose specimen', `1 – ${presets.length}`], ['Cycle palette', 'C'], ['Swap colors', 'X'],
   ['Move', 'Scroll / arrows'], ['Zoom', '⌘ Scroll / − / +'], ['Reset view', '0'], ['Fullscreen', 'F'], ['Hide or show interface', 'H'], ['Recipe panel', '['], ['Specimens panel', ']'], ['Close menu or dialog', 'Esc'],
 ];
 const shortcuts = `<h2>Less clicking. More growing.</h2><div class="shortcut-list">${shortcutRows.map(([label, key]) => `<div><span>${label}</span><kbd>${key}</kbd></div>`).join('')}</div>`;
@@ -823,7 +930,7 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); setRunning(!running); }
   else if (key === 'b') setTool('brush'); else if (key === 'e') setTool('eraser'); else if (key === 'v') setTool('hand');
   else if (key === 'r') $('#reseed').click(); else if (key === 's') $('#surprise').click();
-  else if (key === 'h') setHud(!hudVisible); else if (key === 'f') void toggleFullscreen();
+  else if (key === 'h') setHud(!hudVisible); else if (key === 'f') void toggleFullscreen(); else if (key === 'n') openLinkedWindow();
   else if (key === 'c') setPalette(paletteIndex + 1); else if (key === 'x') $('#swap-colors').click();
   else if (e.key === '[') setDock('left', !docks.left); else if (e.key === ']') setDock('right', !docks.right);
   else if (e.key === ',') setBrushSize(brushSize - 2); else if (e.key === '.') setBrushSize(brushSize + 2);
@@ -841,5 +948,6 @@ window.addEventListener('blur', () => { drawing = false; panning = false; pointe
 
 // ---------- Boot ----------
 updateResolutionUI(); renderSaved(); applyPalette(); updateSliders(); updateSpecimenLabel(); updateThresholdLabel(); updateSpeedLabel(); updateStart(); setTool('brush'); setZoom(zoom);
+setMix(mixMode, 0, false); updateStrengthLabel(); updateLinkUI(); $<HTMLButtonElement>('#open-window').disabled = !linkable;
 if (embed && !interactive) $('#simulation').style.pointerEvents = 'none';
 void initialize(); requestAnimationFrame(frame);
