@@ -31,6 +31,7 @@ The canvas fills the window. Everything else floats over it and can be hidden.
 - Drag on the canvas to paint chemical B. Hold Shift to erase. Scroll to move, hold ⌘ or Ctrl while scrolling to zoom, or pinch on a touch screen.
 - The field wraps at its edges, so you can move across it endlessly in any direction and zoom out to see it tile.
 - **Saved** (below the specimens): press ⌘S or Ctrl+S to save the current morph under a name, including live knob adjustments and painted changes, plus the recipe, colors, weight, speed, base resolution, seed, zoom, and position. The field is captured when you open Save current. Loading restores that exact field paused; press play to continue growing. Full-precision chemical fields live in your browser's IndexedDB, with recipe metadata and thumbnails in local storage. Older recipe-only saves still regrow from their seeds.
+- **Windows** (bottom of Recipe): open a second Morph Lab window and drag it over this one. Where the windows overlap on your screen, the two patterns mix. See [Linked windows](#linked-windows).
 - Press **H** to hide the whole interface and watch the pattern. Press **[** or **]** to toggle a single panel. Panel state is remembered.
 - Press **?** for all shortcuts.
 - Canvas shortcuts also work while a button, slider, or dropdown has focus. Space plays or pauses and arrow keys move the view. Text fields and dialogs keep their normal keys; use arrow keys inside an exact-value field or scroll over a slider to fine-tune it.
@@ -49,6 +50,21 @@ Simulation and canvas rendering stay on the GPU. Seed creation, saving and resto
 Preview grown pattern adds a short accelerated growth phase. Turn it off to watch from the first seeds, or choose Start paused to inspect or paint before growing. New seed always starts fresh. Empty starts always pause. Browser visibility pauses GPU submissions.
 
 Model reference: [Karl Sims' reaction–diffusion tutorial](https://www.karlsims.com/rd.html).
+
+## Linked windows
+
+Every Morph Lab window knows where it sits on your screen. Open more than one from the same origin and they find each other. Where two windows overlap, each one treats the other's visible field as a neighbour and the chemistry reacts across the boundary. The overlap also takes on a blend of both windows' colors.
+
+- **Open a linked window** (Recipe → Windows, or press **N**) opens a popup with another specimen, a fresh seed, and a different palette, offset so it overlaps right away. Drag it around; the mixing follows. You can open as many as your GPU enjoys. Any Morph Lab tab or window from the same site joins in.
+- **When windows overlap** chooses how they mix. The choice is shared across all linked windows; the last change wins.
+  - **Melt**: both fields flow into each other and fuse. Patterns merge into one.
+  - **Crossbreed**: the overlap runs a blend of both recipes, so a third pattern grows at the junction.
+  - **Siphon**: the front window (the one you touched last) drinks chemical from the one beneath, which is drained where it is covered.
+  - **Carve**: each pattern erodes where the other has grown. Only the differences survive.
+  - **Keep apart**: windows stay aware of each other but keep their chemistry to themselves.
+- **Mixing strength** scales every mode.
+
+Windows talk over a `BroadcastChannel`, so there is no server and nothing leaves your machine. Each window shares a 256 × 160 capture of its visible field about thirty times a second while an overlap exists. Mixing works at any zoom, position, or base resolution; the windows map each other through screen space. The browser must report window positions: this works on macOS, Windows, ChromeOS, and X11. Wayland hides window positions, so there the windows all think they sit at the same spot. Embeds never link.
 
 ## Export
 
@@ -78,6 +94,7 @@ The lab reads its state from the query string, which is what share links and emb
 | `init_x`, `init_y` | Starting position, each from 0 to 1 |
 | `grown`, `paused` | Preview grown or start paused, each `0` or `1` |
 | `image` | URL-safe Base64-encoded 128 × 80 binary image silhouette |
+| `mix` | How overlapping windows mix: `melt` (default), `cross`, `siphon`, `carve`, or `off` |
 | `init_imageScale` | Image size relative to the field, 0.1–1 |
 | `z` | Zoom, 0.25–6 |
 | `embed` | Hide the interface entirely |

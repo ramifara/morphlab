@@ -244,7 +244,7 @@ dialog strong { color: var(--text); font-weight: 600; }
 /* ---------- Responsive ---------- */
 @media (max-width: 820px) {
   :root { --pad: 10px; --top-h: 40px; }
-  .brand-text, .specimen-id { display: none; }
+  .brand-text, .specimen-id, .link-chip { display: none; }
   .brand { padding: 0 9px; }
   .chip.group .text-button span { display: none; }
   #fullscreen, #about, .chip.group .divider:first-of-type { display: none; }
@@ -312,6 +312,20 @@ dialog strong { color: var(--text); font-weight: 600; }
 .saved-empty { font-size: 10.5px; line-height: 1.6; color: var(--muted); margin: 4px 14px 8px; }
 .text-input { width: 100%; height: 36px; margin-top: 6px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .03); color: var(--text); font-size: 13px; }
 .text-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- Linked windows ---------- */
+.link-chip { gap: 7px; padding: 0 12px 0 10px; font-size: 12px; font-weight: 500; color: var(--text-dim); cursor: pointer; transition: color .15s, border-color .15s; }
+.link-chip:hover { color: var(--text); }
+.link-chip .icon { color: var(--muted); }
+.link-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.link-chip.overlapping { color: var(--accent); border-color: var(--accent-line); }
+.link-chip.overlapping .icon { color: var(--accent); }
+.link-chip.overlapping .link-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); animation: pulse 1.2s ease-in-out infinite; }
+.link-intro { margin-top: 4px; }
+.link-open { width: 100%; justify-content: center; margin-top: 10px; }
+.link-open kbd { margin-left: 2px; color: var(--bg); border-color: rgba(0, 0, 0, .25); background: rgba(0, 0, 0, .1); }
+.link-status { margin: 12px 0 0; padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255, 255, 255, .02); font-size: 10.5px; line-height: 1.5; color: var(--text-dim); transition: border-color .2s, color .2s, background .2s; }
+.link-status.overlapping { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
 
 /* ---------- Starting field ---------- */
 .start-mode { margin-top: 2px; }

@@ -56,9 +56,15 @@ export type LinkMessage =
   | { type: 'field'; id: string; snapshot: Snapshot }
   | { type: 'leave'; id: string };
 
-const sameState = (a: PeerState, b: PeerState) =>
+export const sameState = (a: PeerState, b: PeerState) =>
   sameRect(a.rect, b.rect) && a.focusedAt === b.focusedAt && a.feed === b.feed && a.kill === b.kill
   && a.background === b.background && a.foreground === b.foreground && a.mix === b.mix && a.mixChangedAt === b.mixChangedAt;
+
+const finite = (...values: unknown[]) => values.every(v => typeof v === 'number' && Number.isFinite(v));
+const validRect = (rect: Rect | undefined) => !!rect && finite(rect.x, rect.y, rect.w, rect.h) && rect.w > 0 && rect.h > 0;
+// Messages come from other windows; a stale or foreign tab must not crash the compositor.
+const validSnapshot = (s: Snapshot | undefined) => !!s && validRect(s.rect) && Number.isInteger(s.width) && Number.isInteger(s.height) && s.width > 0 && s.height > 0
+  && s.data instanceof Uint8Array && s.data.length === s.width * s.height * 2;
 
 export class PeerRegistry {
   private map = new Map<string, Peer>();
@@ -67,15 +73,15 @@ export class PeerRegistry {
   receive(message: LinkMessage, now: number): boolean {
     if (message.type === 'state') {
       const { state } = message;
-      if (state.id === this.selfId) return false;
+      if (state.id === this.selfId || !validRect(state.rect)) return false;
       const existing = this.map.get(state.id);
       if (existing && sameState(existing, state)) { existing.seenAt = now; return false; }
       this.map.set(state.id, { ...state, rect: { ...state.rect }, seenAt: now, snapshot: existing?.snapshot });
       return true;
     }
     if (message.type === 'field') {
-      const peer = this.map.get(message.id);
-      if (!peer) return false;
+      const peer = this.map.get(message.id), { snapshot } = message;
+      if (!peer || !validSnapshot(snapshot)) return false;
       peer.snapshot = message.snapshot; peer.seenAt = now;
       return true;
     }

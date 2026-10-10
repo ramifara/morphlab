@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LAYER_HEIGHT, LAYER_WIDTH, PEER_TIMEOUT, PeerRegistry, cellToLayerUV, compositeLayer, intersect, newestMix,
-  parseMixMode, stripToAB, viewportRect, type Peer, type Rect, type Snapshot,
+  parseMixMode, sameState, stripToAB, viewportRect, type Peer, type Rect, type Snapshot,
 } from './link';
 
 const peer = (id: string, rect: Rect, focusedAt: number, extra: Partial<Peer> = {}): Peer => ({
@@ -63,6 +63,21 @@ describe('peer registry', () => {
     registry.receive(state('a'), 0);
     expect(registry.receive({ type: 'field', id: 'a', snapshot }, 0)).toBe(true);
     expect(registry.peers()[0].snapshot).toBe(snapshot);
+  });
+  it('rejects malformed rectangles and snapshots from other tabs', () => {
+    const registry = new PeerRegistry('me');
+    const bad = state('a'); bad.state.rect = { x: 0, y: 0, w: 0, h: 100 };
+    expect(registry.receive(bad, 0)).toBe(false);
+    registry.receive(state('a'), 0);
+    const short = { ...flat({ x: 0, y: 0, w: 100, h: 100 }, 1, 1), data: new Uint8Array(3) };
+    expect(registry.receive({ type: 'field', id: 'a', snapshot: short }, 0)).toBe(false);
+    expect(registry.receive({ type: 'field', id: 'a', snapshot: { ...short, rect: { x: NaN, y: 0, w: 1, h: 1 } } }, 0)).toBe(false);
+    expect(registry.peers()[0].snapshot).toBeUndefined();
+  });
+  it('compares states field by field', () => {
+    const a = state('a').state;
+    expect(sameState(a, { ...a, rect: { ...a.rect } })).toBe(true);
+    expect(sameState(a, { ...a, kill: .061 })).toBe(false);
   });
   it('removes peers that leave or fall silent', () => {
     const registry = new PeerRegistry('me');
