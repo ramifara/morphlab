@@ -102,9 +102,12 @@ view center), sample the layer, and if weight `w > 0` apply the mode:
 
 ### Rendering
 
-The display shader samples the layer at canvas uv and blends background and
-foreground 50 % toward the peer's colors, scaled by `w`. The overlap region is
-therefore visible in every mode, and reads as "both windows' colors".
+The display shader samples the layer at canvas uv. Inside the overlap it tints
+background and foreground 18 % toward the peer's colors (scaled by `w`) so the
+region reads as shared, and draws a ghost of the peer's pattern at 60 % in
+whichever of the peer's two colors is farther from the own background. A plain
+50 % blend was tried first; inverse palettes such as Ivory and Ink cancel to flat
+gray, which the ghost approach avoids.
 
 ### UI (left dock, new section 05 "Windows")
 

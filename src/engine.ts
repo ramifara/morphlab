@@ -110,10 +110,16 @@ fn project(uv: vec2f) -> vec2f { return (uv-.5)*vec2f(p.bg.w,p.fg.w)/p.zoom+.5; 
 @fragment fn fs(v: Vertex) -> @location(0) vec4f {
   let b = field(project(v.uv)).y;
   let t = smoothstep(p.threshold-.045,p.threshold+.045,b);
-  var bg = p.bg.rgb; var fg = p.fg.rgb;
+  var color = mix(p.bg.rgb, p.fg.rgb, t);
+  // Where another window overlaps: tint the region a little and ghost its pattern in whichever of its colors shows on our background.
   let f = textureSampleLevel(foreign, foreignSampler, v.uv, 0.);
-  if (f.a > 0. && m.mode != 4u) { let slot = peerSlot(f) * 2u; bg = mix(bg, m.colors[slot].rgb, f.a * .5); fg = mix(fg, m.colors[slot + 1u].rgb, f.a * .5); }
-  return vec4f(mix(bg,fg,t),1.);
+  if (f.a > 0. && m.mode != 4u) {
+    let slot = peerSlot(f) * 2u; let peerBg = m.colors[slot].rgb; let peerFg = m.colors[slot + 1u].rgb;
+    color = mix(mix(p.bg.rgb, peerBg, f.a * .18), mix(p.fg.rgb, peerFg, f.a * .18), t);
+    let ghostColor = select(peerBg, peerFg, distance(peerFg, p.bg.rgb) > distance(peerBg, p.bg.rgb));
+    color = mix(color, ghostColor, smoothstep(p.threshold-.045, p.threshold+.045, f.g) * f.a * .6);
+  }
+  return vec4f(color,1.);
 }
 @fragment fn fsCapture(v: Vertex) -> @location(0) vec4f { return vec4f(field(project(v.uv)), 0., 1.); }`;
 
@@ -298,11 +304,16 @@ ${mixGL}
 ${viewGL}
 void main() {
   vec2 screen = vec2(uv.x, 1.-uv.y);
-  float b = field(screen).y;
-  vec3 back = bg, front = fg;
+  float t = smoothstep(threshold-.045,threshold+.045,field(screen).y);
+  vec3 color = mix(bg, fg, t);
   vec4 f = texture(foreign, screen);
-  if (f.a > 0. && mixMap.z < 3.5) { int slot = peerSlot(f) * 2; back = mix(back, peerColors[slot], f.a * .5); front = mix(front, peerColors[slot + 1], f.a * .5); }
-  result = vec4(mix(back,front,smoothstep(threshold-.045,threshold+.045,b)),1.);
+  if (f.a > 0. && mixMap.z < 3.5) {
+    int slot = peerSlot(f) * 2; vec3 peerBg = peerColors[slot], peerFg = peerColors[slot + 1];
+    color = mix(mix(bg, peerBg, f.a * .18), mix(fg, peerFg, f.a * .18), t);
+    vec3 ghostColor = distance(peerFg, bg) > distance(peerBg, bg) ? peerFg : peerBg;
+    color = mix(color, ghostColor, smoothstep(threshold-.045, threshold+.045, f.g) * f.a * .6);
+  }
+  result = vec4(color,1.);
 }`;
 // Framebuffer row 0 is the bottom, so the unflipped uv puts the screen's top row first in readPixels.
 const captureGL = `#version 300 es
