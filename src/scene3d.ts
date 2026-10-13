@@ -161,6 +161,9 @@ export class SceneVolumeEngine extends VolumeEngine {
   async seedRecipe(recipe: VolumeSceneRecipe) {
     await this.restore({selected:recipe.selected,interaction:recipe.interaction,cameraDistance:recipe.cameraDistance,mode:recipe.mode,sceneCut:recipe.sceneCut,cutScope:recipe.cutScope,objects:recipe.objects.map(config=>({config,field:makeVolumeSeed(this.width,config.seed,config.start,config.shape)}))});
   }
+  restartSeeds() {
+    for(const object of this.objects){const c=object.config;object.engine.seed(makeVolumeSeed(this.width,c.seed,c.start,c.shape));}
+  }
   seed(data: Float32Array) { this.active.engine.seed(data); }
   read() { return this.active.engine.read(); }
   step(recipe:Parameters,iterations:number,brush:Brush=idleBrush) {

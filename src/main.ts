@@ -172,7 +172,7 @@ $('#app').innerHTML = `
          <div id="start-position"><label class="select-field" for="start-position-preset"><span>Position in the field</span><span class="select-wrap"><select id="start-position-preset"><option value=".5,.5">Center</option><option value=".08,.08">Top left</option><option value=".92,.08">Top right</option><option value=".08,.92">Bottom left</option><option value=".92,.92">Bottom right</option><option value=".5,.08">Top edge</option><option value=".5,.92">Bottom edge</option><option value=".08,.5">Left edge</option><option value=".92,.5">Right edge</option><option value="custom">Custom</option></select>${icon('chevron')}</span></label><div class="pair">${startSlider('x', 'Horizontal', 0, 1, .01, start.x)}${startSlider('y', 'Vertical', 0, 1, .01, start.y)}</div></div>
          </details>
          <div id="start-playback"><label class="check-field"><input id="start-grown" type="checkbox"/><span>Preview grown pattern</span></label><label class="check-field"><input id="start-paused" type="checkbox"/><span>Start paused</span></label></div>
-         <div class="start-actions"><button class="primary-button" id="restart-seed">${icon('reset')}<span>Restart seed</span></button><button class="text-button" id="new-seed">${icon('shuffle')} New seed</button><button class="text-button" id="add-seeds">${icon('plus')} Add seeds</button><button class="text-button" id="clear-field">${icon('eraser')} Clear canvas</button></div>
+         <div class="start-actions"><button class="primary-button" id="restart-seed">${icon('reset')}<span>Restart seed</span></button><button class="text-button" id="restart-scene-seeds" hidden>Restart all seeds</button><button class="text-button" id="new-seed">${icon('shuffle')} New seed</button><button class="text-button" id="add-seeds">${icon('plus')} Add seeds</button><button class="text-button" id="clear-field">${icon('eraser')} Clear canvas</button></div>
          <p class="field-hint" id="start-hint">Changes apply when you restart or add seeds.</p>`)}
       ${section('02', 'Reaction',
         slider('feed', 'Feed', 'f', params.feed, .005, .095, .0001, 'How much chemical A enters the system.') +
@@ -270,7 +270,7 @@ function updateDimensionUI() {
   $('#export-geometry').hidden = !is3D; $('[data-tool=object]').hidden = !is3D;
   $('#export-png-8').hidden = is3D; $('#export-svg').hidden = is3D; $('.menu-option').hidden = is3D;
   if (engine instanceof VolumeEngine) syncCutControls();
-  $('#scene-depth').hidden=!is3D;$('#scene-fit').hidden=!is3D;
+  $('#scene-depth').hidden=!is3D;$('#scene-fit').hidden=!is3D;$('#restart-scene-seeds').hidden=!is3D;
   updateSceneUI(); syncSelects();
 }
 $('#dimension-toggle').addEventListener('click', () => void switchDimension());
@@ -308,6 +308,7 @@ function updateSceneUI() {
   $<HTMLInputElement>('#scene-strength').value=String(engine.interaction);
   $<HTMLSelectElement>('#scene-mix-mode').value=engine.mixMode;
   const multiple=scene.objects.length>1;
+  $('#restart-scene-seeds').hidden=!multiple;
   $('#scene-quickbar').dataset.multiple=String(multiple);
   $$('[data-scene-multiple]').forEach(control=>control.hidden=!multiple);
   $('#scene-strength').closest<HTMLElement>('label')!.hidden=!multiple||scene.mixMode==='off';
@@ -330,7 +331,7 @@ function loadObjectControls() {
 }
 async function changeScene(action:'sphere'|'box'|'remove') {
   if(!(engine instanceof SceneVolumeEngine)||switching||exporting)return;
-  syncScene();switching=true;loadRevision++;updateSceneUI();
+  prepareObjectSeeds();syncScene();switching=true;loadRevision++;updateSceneUI();
   try { if(action==='remove')await engine.remove();else await engine.add(action); loadObjectControls(); }
   catch(error){console.error(error);toast('Could not allocate another object. Try a lower volume resolution.');}
   finally{switching=false;updateSceneUI();renderNeeded=true;}
@@ -482,9 +483,10 @@ for (const key of Object.keys(params) as (keyof Parameters)[]) $(`#${key}`).addE
 function reseed(prepare = start.grown) {
   if (!engine || switching || exporting) return;
   loadRevision++;
-  engine.seed(makeStartField()); iterations = 0; warmup = prepare && !start.paused && start.mode !== 'empty' ? 1200 : 0; renderNeeded = true;
+  if(is3D){start.paused=true;start.grown=false;}
+  engine.seed(makeStartField()); iterations = 0; warmup = !is3D && prepare && !start.paused && start.mode !== 'empty' ? 1200 : 0; renderNeeded = true;
   drawing = false; pendingBrush = null; brush = { ...idleBrush };
-  $('#iteration-count').textContent = '0'; setRunning(start.mode !== 'empty' && !start.paused);syncScene();updateSceneUI();
+  $('#iteration-count').textContent = '0'; setRunning(!is3D && start.mode !== 'empty' && !start.paused);syncScene();updateSceneUI();
 }
 function makeStartField(settings = start, seedNumber = seed, targetWidth = width, targetHeight = height, volume = is3D) {
   if (volume) return makeVolumeSeed(targetWidth, seedNumber, settings, volumeShape);
@@ -544,22 +546,26 @@ function updateStart() {
   $('#start-image').hidden = !image;
   $('#image-cutoff-controls').hidden = !imagePixels;
   $('#image-name').textContent = start.imageMask ? 'Replace image' : 'Choose an image';
-  $('#start-playback').hidden = empty;
+  $('#start-playback').hidden = empty || is3D;
   $<HTMLInputElement>('#start-grown').checked = start.grown;
   $<HTMLInputElement>('#start-paused').checked = start.paused;
   $<HTMLInputElement>('#start-grown').disabled = start.paused;
   $<HTMLButtonElement>('#restart-seed').disabled = image && !start.imageMask;
-  $('#restart-seed span').textContent = empty ? 'Start empty' : 'Restart seed';
+  $('#restart-seed span').textContent = empty ? 'Start empty' : is3D ? 'Restart selected seed' : 'Restart seed';
   $<HTMLButtonElement>('#new-seed').disabled = empty || (image && !start.imageMask);
   $<HTMLButtonElement>('#add-seeds').disabled = empty || addingSeeds || (image && !start.imageMask);
-  $('#start-hint').textContent = empty ? 'Start empty clears and pauses. Paint, then press play. You can also choose a shape and add seeds.' : 'Restart replaces the field. Add seeds keeps the current pattern. Changes apply with either button.';
+  $('#start-hint').textContent = is3D ? 'Seed settings belong to the selected object. Restart selected or all seeds to apply them; the scene stays paused until Play.' : empty ? 'Start empty clears and pauses. Paint, then press play. You can also choose a shape and add seeds.' : 'Restart replaces the field. Add seeds keeps the current pattern. Changes apply with either button.';
   for (const key of ['count', 'radius', 'amount', 'x', 'y', 'imageScale'] as const) {
     const el = $<HTMLInputElement>(`#start-${key}`); el.value = String(start[key]); updateRange(el);
     $(`#start-${key}-value`).textContent = key === 'count' ? String(start[key]) : key === 'radius' ? `${start[key]} cells` : `${Math.round(start[key] * 100)}%`;
   }
   const position = $<HTMLSelectElement>('#start-position-preset');
   position.value = [...position.options].find(option => option.value !== 'custom' && option.value.split(',').map(Number).every((n, i) => n === (i === 0 ? start.x : start.y)))?.value ?? 'custom';
-  drawStartPreview();
+  drawStartPreview();syncScene();
+}
+function prepareObjectSeeds(){
+  if(!is3D)return;
+  start.paused=true;start.grown=false;warmup=0;setRunning(false);syncScene();
 }
 function readyToStart() {
   if (!engine || switching || exporting) { toast('Wait for the simulation to be ready, then try again.'); return false; }
@@ -570,22 +576,27 @@ $('#start-mode').addEventListener('change', e => {
   loadRevision++; imageRevision++;
   start.mode = (e.target as HTMLSelectElement).value as SeedMode; start.count = seedCount(start.mode);
   if (start.mode === 'image') { start.grown = false; start.paused = true; }
-  updateStart();
+  prepareObjectSeeds();updateStart();
+});
+$('#seed-number').addEventListener('input',e=>{
+  const value=(e.target as HTMLInputElement).value;
+  if(!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)>4294967295)return;
+  seed=Number(value);loadRevision++;prepareObjectSeeds();syncScene();drawStartPreview();
 });
 $('#seed-number').addEventListener('change', e => {
   const input = e.target as HTMLInputElement, value = Number(input.value);
   if (!/^\d+$/.test(input.value) || !Number.isSafeInteger(value) || value > 4294967295) {
     input.value = String(seed); toast('Use a whole seed number from 0 to 4294967295.'); return;
   }
-  seed = value; loadRevision++; drawStartPreview();
+  seed = value; loadRevision++;prepareObjectSeeds();syncScene();drawStartPreview();
 });
 for (const key of ['count', 'radius', 'amount', 'x', 'y', 'imageScale'] as const) $(`#start-${key}`).addEventListener('input', e => {
-  loadRevision++; start[key] = Number((e.target as HTMLInputElement).value); updateStart();
+  loadRevision++; start[key] = Number((e.target as HTMLInputElement).value);prepareObjectSeeds();updateStart();
 });
 $('#start-position-preset').addEventListener('change', e => {
   const value = (e.target as HTMLSelectElement).value;
   if (value === 'custom') return;
-  loadRevision++; [start.x, start.y] = value.split(',').map(Number); updateStart();
+  loadRevision++; [start.x, start.y] = value.split(',').map(Number);prepareObjectSeeds();updateStart();
 });
 $('#start-grown').addEventListener('change', e => { start.grown = (e.target as HTMLInputElement).checked; });
 $('#start-paused').addEventListener('change', e => {
@@ -597,6 +608,13 @@ $('#restart-seed').addEventListener('click', () => {
   if (!readyToStart()) return;
   reseed(); toast(start.mode === 'empty' ? 'Empty canvas. Paint or add seeds, then press play.' : `Seed ${seed} restarted${start.paused ? '. Press play to grow.' : '.'}`);
 });
+$('#restart-scene-seeds').addEventListener('click',()=>{
+  if(!(engine instanceof SceneVolumeEngine)||!readyToStart())return;
+  prepareObjectSeeds();syncScene();
+  if(engine.objects.some(object=>object.config.start.mode==='image'&&!object.config.start.imageMask)){toast('Choose an image for each image-seeded object first.');return;}
+  loadRevision++;engine.restartSeeds();iterations=0;warmup=0;drawing=false;pendingBrush=null;brush={...idleBrush};renderNeeded=true;
+  $('#iteration-count').textContent='0';toast('All object seeds restarted. Press Play to grow them together.');
+});
 $('#new-seed').addEventListener('click', () => {
   if (!readyToStart() || start.mode === 'empty') return;
   seed = crypto.getRandomValues(new Uint32Array(1))[0]; updateStart(); reseed(false); toast(`New seed ${seed}.`);
@@ -607,6 +625,7 @@ $('#clear-field').addEventListener('click', () => {
 });
 $('#add-seeds').addEventListener('click', async () => {
   if (!readyToStart() || start.mode === 'empty') return;
+  prepareObjectSeeds();
   const target = engine!, revision = ++loadRevision, settings = { ...start }, seedNumber = seed;
   exporting = true; addingSeeds = true; updateStart();
   try {
@@ -623,7 +642,7 @@ function updateImageMask() {
   const cutoff = Number($<HTMLInputElement>('#start-cutoff').value);
   $('#start-cutoff-value').textContent = `${Math.round(cutoff * 100)}%`;
   start.imageMask = imageMask(imagePixels, cutoff, $<HTMLInputElement>('#image-light').checked);
-  loadRevision++; updateStart();
+  loadRevision++;prepareObjectSeeds();updateStart();
 }
 $('#start-cutoff').addEventListener('input', updateImageMask);
 $('#image-light').addEventListener('change', updateImageMask);
