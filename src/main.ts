@@ -106,11 +106,13 @@ $('#app').innerHTML = `
 
   <div class="scene-handles" id="scene-handles" hidden aria-label="Drag scene objects"></div>
   <div class="hud scene-quickbar chip" id="scene-quickbar" hidden>
-    <label class="scene-mode"><span>Interaction</span><select id="scene-mix-mode">${mixModes.map(mode=>`<option value="${mode}">${mixNames[mode]}</option>`).join('')}</select></label>
-    <label class="scene-range" for="scene-strength"><span>Strength</span><input id="scene-strength" type="range" min="0" max="1" step=".05" value=".85"/></label>
+    <label class="scene-mode" data-scene-multiple><span>Interaction</span><select id="scene-mix-mode">${mixModes.map(mode=>`<option value="${mode}">${mixNames[mode]}</option>`).join('')}</select></label>
+    <label class="scene-range scene-strength" for="scene-strength" data-scene-multiple title="How strongly overlapping objects interact"><span>Strength</span><input id="scene-strength" type="range" min="0" max="1" step=".05" value=".85"/></label>
     <label class="scene-range" for="scene-cut"><span>Cut all</span><input id="scene-cut" type="range" min="-.9" max="1" step=".01" value="1"/></label>
-    <button class="text-button" id="scene-depth" aria-pressed="false" title="Drag up/down to move in depth · Shift-drag does the same">Depth</button>
-    <button class="text-button" id="scene-fit" title="Frame every object">Fit</button>
+    <div class="scene-cut-scopes" role="group" aria-label="Cross-section scope" data-scene-multiple>
+      <button class="icon-button" data-cut-scope="selected" aria-label="Separate cross-sections" aria-pressed="false" title="Separate cross-sections · the slider cuts only the selected object">${icon('cutSeparate')}</button>
+      <button class="icon-button" data-cut-scope="all" aria-label="Shared cross-section" aria-pressed="true" title="Shared cross-section · one plane cuts every object">${icon('cutShared')}</button>
+    </div>
     <div class="scene-feedback" id="scene-feedback" role="status">Drag objects or their labels · background drag orbits · Shift-drag moves in depth</div>
   </div>
   <header class="hud hud-top">
@@ -148,7 +150,7 @@ $('#app').innerHTML = `
   <aside class="hud dock dock-left panel" id="dock-left" data-open="${docks.left}" aria-label="Recipe">
     <div class="dock-head"><span class="dock-title">${icon('sliders')} Recipe</span><button class="icon-button small" id="reset-params" title="Reset recipe" aria-label="Reset recipe">${icon('reset')}</button><button class="icon-button small dock-close" data-close="left" aria-label="Close panel">${icon('close')}</button></div>
     <div class="dock-scroll">
-      ${section('3D', 'Scene', `<div class="scene-objects" id="scene-objects" role="group" aria-label="Scene objects"></div><div class="scene-actions"><button class="text-button" id="add-sphere">${icon('plus')} Sphere</button><button class="text-button" id="add-box">${icon('plus')} Box</button><button class="icon-button small" id="remove-object" aria-label="Remove selected object" title="Remove selected object">${icon('trash')}</button></div><p class="field-hint" id="scene-selection-note">Recipe controls edit the selected object.</p><div class="object-shapes" role="group" aria-label="Object shape"><button data-shape="sphere" aria-pressed="${volumeShape === 'sphere'}">◉ Sphere</button><button data-shape="box" aria-pressed="${volumeShape === 'box'}">◇ Box</button></div><p class="field-hint">Choose an interaction above playback. Melt fuses the surface and colors instantly; the chemistry also flows as it evolves. Shape changes restart this object.</p><div class="field"><div class="field-head"><label for="object-size">Object size</label><output id="object-size-value">${objectSize.toFixed(1)}×</output></div><input id="object-size" type="range" min=".5" max="3" step=".1" value="${objectSize}"/><p class="field-hint">Scales the object in the scene. Resolution adds chemical cells.</p></div><div class="object-position" role="group" aria-label="Object position">${['x','y','z'].map((axis,i)=>`<label>${axis.toUpperCase()}<input id="object-${axis}" type="number" min="-6" max="6" step=".1" value="0" aria-label="Object ${axis.toUpperCase()} position"/></label>`).join('')}</div><button class="text-button" id="move-object">${icon('move')} Drag object</button><div class="field"><div class="field-head"><label for="interaction">Interaction strength</label><output id="interaction-value">85%</output></div><input id="interaction" type="range" min="0" max="1" step=".05" value=".85"/><p class="field-hint" id="interaction-note">Move objects together to mix their chemicals.</p></div><label class="select-field"><span>Cutaway affects</span><select id="scene-cut-scope"><option value="all">All objects · one plane</option><option value="selected">Each object separately</option></select></label><div class="field"><div class="field-head"><label for="volume-cut">Cutaway</label><output id="cut-value">Whole</output></div><input id="volume-cut" type="range" min="-.9" max="1" step=".01" value="1"/></div><label class="check-field floor-toggle"><input id="show-floor" type="checkbox" ${showFloor ? 'checked' : ''}/><span>Show floor</span></label><button class="text-button" id="reset-orbit">Reset camera</button><button class="text-button" id="fit-object">Fit scene</button><p class="field-hint">Drag to orbit. Scroll to zoom. Choose the brush to seed the boundary or exposed cut.</p>`)}
+      ${section('3D', 'Scene', `<div class="scene-objects" id="scene-objects" role="group" aria-label="Scene objects"></div><div class="scene-actions"><button class="text-button" id="add-sphere">${icon('plus')} Sphere</button><button class="text-button" id="add-box">${icon('plus')} Box</button><button class="icon-button small" id="remove-object" aria-label="Remove selected object" title="Remove selected object">${icon('trash')}</button></div><p class="field-hint" id="scene-selection-note">Recipe controls edit the selected object.</p><div class="object-shapes" role="group" aria-label="Object shape"><button data-shape="sphere" aria-pressed="${volumeShape === 'sphere'}">◉ Sphere</button><button data-shape="box" aria-pressed="${volumeShape === 'box'}">◇ Box</button></div><p class="field-hint">Shape changes restart this object.</p><div class="field"><div class="field-head"><label for="object-size">Object size</label><output id="object-size-value">${objectSize.toFixed(1)}×</output></div><input id="object-size" type="range" min=".5" max="3" step=".1" value="${objectSize}"/><p class="field-hint">Scales the object in the scene. Resolution adds chemical cells.</p></div><div class="object-position" role="group" aria-label="Object position">${['x','y','z'].map((axis,i)=>`<label>${axis.toUpperCase()}<input id="object-${axis}" type="number" min="-6" max="6" step=".1" value="0" aria-label="Object ${axis.toUpperCase()} position"/></label>`).join('')}</div><label class="check-field floor-toggle"><input id="show-floor" type="checkbox" ${showFloor ? 'checked' : ''}/><span>Show floor</span></label><p class="field-hint">Drag to orbit. Scroll to zoom. Choose the brush to seed the boundary or exposed cut.</p>`)}
 
       ${section('01', 'Starting field',
         `<label class="select-field start-mode" for="start-mode"><span>Start with</span><span class="select-wrap"><select id="start-mode">${seedModes.map(mode => `<option value="${mode}">${startNames[mode]}</option>`).join('')}</select>${icon('chevron')}</span></label>
@@ -223,6 +225,8 @@ $('#app').innerHTML = `
       <button class="icon-button" data-tool="eraser" title="Erase · E" aria-label="Erase chemical" aria-pressed="false">${icon('eraser')}</button>
       <button class="icon-button" data-tool="object" title="Move object · G" aria-label="Move object" aria-pressed="false" hidden>${icon('move')}</button>
       <button class="icon-button" data-tool="hand" title="Move around · V" aria-label="Move around" aria-pressed="false">${icon('hand')}</button>
+      <button id="scene-depth" class="icon-button" hidden aria-label="Move in depth" aria-pressed="false" title="Move in depth · drag up/down toward or away · Shift-drag">${icon('depth')}</button>
+      <button id="scene-fit" class="icon-button" hidden aria-label="Fit scene" title="Fit every object in view">${icon('expand')}</button>
       <label class="brush-size" title="Brush size · , and ."><input id="brush-size" aria-label="Brush size" type="range" min="3" max="45" value="14"/></label>
       <span class="divider"></span>
       <button id="zoom-out" class="icon-button" aria-label="Zoom out" title="Zoom out · −">${icon('minus')}</button>
@@ -265,10 +269,8 @@ function updateDimensionUI() {
   $('#export-png span').innerHTML = is3D ? 'PNG · current 3D view<small>Object, lighting and camera</small>' : originalPNG;
   $('#export-geometry').hidden = !is3D; $('[data-tool=object]').hidden = !is3D;
   $('#export-png-8').hidden = is3D; $('#export-svg').hidden = is3D; $('.menu-option').hidden = is3D;
-  if (engine instanceof VolumeEngine) {
-    $<HTMLInputElement>('#volume-cut').value = String(engine.cut);
-    $('#cut-value').textContent = engine.cut === 1 ? 'Whole' : `${Math.round((1-engine.cut)/2*100)}% removed`;
-  }
+  if (engine instanceof VolumeEngine) syncCutControls();
+  $('#scene-depth').hidden=!is3D;$('#scene-fit').hidden=!is3D;
   updateSceneUI(); syncSelects();
 }
 $('#dimension-toggle').addEventListener('click', () => void switchDimension());
@@ -279,13 +281,7 @@ $('#dimension-toggle').addEventListener('click', () => void switchDimension());
     $$('[data-shape]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.shape === volumeShape)));
     reseed();
   }));
-  $('#volume-cut').addEventListener('input', e => {
-    if (!(engine instanceof VolumeEngine)) return;
-    applySceneCut(Number((e.target as HTMLInputElement).value));
-  });
-  $('#reset-orbit').addEventListener('click', () => resetView());
   $('#show-floor').addEventListener('change', e => { showFloor = (e.target as HTMLInputElement).checked; if (engine instanceof VolumeEngine) engine.showFloor = showFloor; renderNeeded = true; });
-  $('#fit-object').addEventListener('click', () => {syncScene();setZoom(engine instanceof SceneVolumeEngine ? engine.fitScene() : 1);});
   $('#object-size').addEventListener('input', e => {
     objectSize = Number((e.target as HTMLInputElement).value);
     $('#object-size-value').textContent = `${objectSize.toFixed(1)}×`;
@@ -311,9 +307,11 @@ function updateSceneUI() {
   ['x','y','z'].forEach((axis,i)=>$<HTMLInputElement>(`#object-${axis}`).value=scene.position[i].toFixed(2));
   $<HTMLInputElement>('#scene-strength').value=String(engine.interaction);
   $<HTMLSelectElement>('#scene-mix-mode').value=engine.mixMode;
-  $<HTMLSelectElement>('#scene-cut-scope').value=engine.cutScope;
+  const multiple=scene.objects.length>1;
+  $('#scene-quickbar').dataset.multiple=String(multiple);
+  $$('[data-scene-multiple]').forEach(control=>control.hidden=!multiple);
+  $('#scene-strength').closest<HTMLElement>('label')!.hidden=!multiple||scene.mixMode==='off';
   syncCutControls();updateSceneHandles();
-  $<HTMLInputElement>('#interaction').value=String(engine.interaction);$('#interaction-value').textContent=engine.interaction===0?'Off':`${Math.round(engine.interaction*100)}%`;
   $('#scene-selection-note').textContent=`${engine.active.config.name} selected · ${engine.objects.length} of 3 objects. Recipe, seeds and appearance apply here.`;
   updateResolutionUI();
 }
@@ -326,7 +324,7 @@ function loadObjectControls() {
   imagePixels=null;imageRevision++;updateSliders();setColors(palette.background,palette.foreground);updateStart();
   $<HTMLInputElement>('#threshold').value=String(threshold);updateThresholdLabel();
   $<HTMLInputElement>('#object-size').value=String(objectSize);$('#object-size-value').textContent=`${objectSize.toFixed(1)}×`;
-  $<HTMLInputElement>('#volume-cut').value=String(engine.cut);$('#cut-value').textContent=engine.cut===1?'Whole':`${Math.round((1-engine.cut)/2*100)}% removed`;
+  syncCutControls();
   $$('[data-shape]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.shape===volumeShape)));
   loadingObjectControls=false;syncScene();updateSceneUI();updateSpecimenLabel();renderNeeded=true;
 }
@@ -348,21 +346,25 @@ $('#scene-objects').addEventListener('click',e=>{
   const value=(e.target as HTMLInputElement).valueAsNumber;if(!Number.isFinite(value))return;
   engine.position[i]=Math.max(-6,Math.min(6,value));syncScene();updateSceneUI();renderNeeded=true;
 }));
-$('#interaction').addEventListener('input',e=>applySceneStrength(Number((e.target as HTMLInputElement).value)));
 $('#scene-strength').addEventListener('input',e=>applySceneStrength(Number((e.target as HTMLInputElement).value)));
 $('#scene-mix-mode').addEventListener('change',e=>{if(engine instanceof SceneVolumeEngine){engine.mixMode=parseMixMode((e.target as HTMLSelectElement).value);renderNeeded=true;updateSceneUI();}});
 $('#scene-cut').addEventListener('input',e=>applySceneCut(Number((e.target as HTMLInputElement).value)));
-$('#scene-cut-scope').addEventListener('change',e=>{if(engine instanceof SceneVolumeEngine){engine.setCutScope((e.target as HTMLSelectElement).value as 'all'|'selected');syncCutControls();renderNeeded=true;}});
-$('#scene-fit').addEventListener('click',()=>$('#fit-object').click());
-$('#move-object').addEventListener('click',()=>setTool('object'));
+$$('[data-cut-scope]').forEach(button=>button.addEventListener('click',()=>{
+  if(!(engine instanceof SceneVolumeEngine)||switching||exporting)return;
+  syncScene();engine.setCutScope(button.dataset.cutScope as 'all'|'selected');syncCutControls();renderNeeded=true;
+}));
+$('#scene-fit').addEventListener('click',()=>{syncScene();setZoom(engine instanceof SceneVolumeEngine?engine.fitScene():1);});
 
 function applySceneStrength(value:number){if(engine instanceof SceneVolumeEngine){engine.interaction=value;updateSceneUI();renderNeeded=true;}}
 function applySceneCut(value:number){if(engine instanceof SceneVolumeEngine)engine.setCut(value);else if(engine instanceof VolumeEngine)engine.cut=value;syncCutControls();renderNeeded=true;}
 function syncCutControls(){
   if(!(engine instanceof VolumeEngine))return;
-  for(const id of ['volume-cut','scene-cut'])$<HTMLInputElement>(`#${id}`).value=String(engine.cut);
-  $('#cut-value').textContent=engine.cut===1?'Whole':`${Math.round((1-engine.cut)/2*100)}% removed`;
-  $('#scene-cut').previousElementSibling!.textContent=engine instanceof SceneVolumeEngine&&engine.cutScope==='selected'?'Cut selected':'Cut all';
+  const slider=$<HTMLInputElement>('#scene-cut');slider.value=String(engine.cut);
+  const multiple=engine instanceof SceneVolumeEngine&&engine.objects.length>1;
+  const shared=engine instanceof SceneVolumeEngine&&engine.cutScope==='all';
+  slider.previousElementSibling!.textContent=multiple?(shared?'Cut all':'Cut selected'):'Cross-section';
+  slider.title=engine.cut===1?'Whole object':`${Math.round((1-engine.cut)/2*100)}% removed`;
+  $$('[data-cut-scope]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.cutScope===(shared?'all':'selected'))));
 }
 const objectHandles=new Map<string,HTMLButtonElement>();
 let handlePointer:number|null=null;
@@ -1167,7 +1169,7 @@ async function applySaved(p: SavedPreset) {
     const switchRevision = loadRevision + 1;
     if (!await initialize($<HTMLSelectElement>('#backend').value, savedResolution) || loadRevision !== switchRevision) return;
   }
-  if (engine instanceof VolumeEngine) { showFloor = p.showFloor ?? true; engine.showFloor = showFloor; $<HTMLInputElement>('#show-floor').checked = showFloor; objectSize = p.objectSize ?? 1; engine.objectSize = objectSize; $<HTMLInputElement>('#object-size').value = String(objectSize); $('#object-size-value').textContent = `${objectSize.toFixed(1)}×`; volumeShape = p.shape ?? 'sphere'; engine.shape = volumeShape; engine.orbit = p.orbit ? { ...p.orbit } : { x: .45, y: -.25 }; engine.cut = p.cut ?? 1; $<HTMLInputElement>('#volume-cut').value = String(engine.cut); $('#volume-cut').dispatchEvent(new Event('input')); $$('[data-shape]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.shape === volumeShape))); }
+  if (engine instanceof VolumeEngine) { showFloor = p.showFloor ?? true; engine.showFloor = showFloor; $<HTMLInputElement>('#show-floor').checked = showFloor; objectSize = p.objectSize ?? 1; engine.objectSize = objectSize; $<HTMLInputElement>('#object-size').value = String(objectSize); $('#object-size-value').textContent = `${objectSize.toFixed(1)}×`; volumeShape = p.shape ?? 'sphere'; engine.shape = volumeShape; engine.orbit = p.orbit ? { ...p.orbit } : { x: .45, y: -.25 }; engine.cut = p.cut ?? 1; applySceneCut(engine.cut); $$('[data-shape]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.shape === volumeShape))); }
   start = normalizeStart(p.start ?? defaultStart(p.seedMode), p.seedMode);
   imagePixels = null; imageRevision++;
   if(engine instanceof SceneVolumeEngine) {

@@ -1,4 +1,7 @@
 const paths: Record<string, string> = {
+  cutShared: '<rect x="3" y="5" width="7" height="14" rx="1"/><rect x="14" y="5" width="7" height="14" rx="1"/><path d="M1 12h22"/>',
+  cutSeparate: '<rect x="3" y="5" width="7" height="14" rx="1"/><rect x="14" y="5" width="7" height="14" rx="1"/><path d="M1 10h11m0 5h11"/>',
+  depth: '<path d="m5 5 14 14M5 11V5h6m8 8v6h-6"/>',
   move: '<path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
   cube: '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5ZM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/>',
   play: '<path d="m8 5 11 7-11 7V5Z"/>',

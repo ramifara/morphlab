@@ -110,7 +110,7 @@ export async function checkDimensionSwitches() {
     assert(root.dataset.dimension === '3d', 'Start this check in 3D mode.');
     const play = document.querySelector<HTMLButtonElement>('#play')!;
     if (play.getAttribute('aria-label') === 'Pause simulation') play.click();
-    input('#volume-cut', '.3'); input('#object-size', '2');
+    input('#scene-cut', '.3'); input('#object-size', '2');
     document.querySelector<HTMLInputElement>('#show-floor')!.checked = false;
     document.querySelector('#show-floor')!.dispatchEvent(new Event('change'));
     document.querySelector<HTMLButtonElement>('#step')!.click();
@@ -125,7 +125,7 @@ export async function checkDimensionSwitches() {
     const zoom2D = document.querySelector('#zoom-reset')!.textContent;
     await toggle();
     assert(root.dataset.dimension === '3d' && new URLSearchParams(location.search).get('mode') === '3d', '3D UI or URL did not update.');
-    assert(document.querySelector<HTMLInputElement>('#volume-cut')!.value === '.3' || document.querySelector<HTMLInputElement>('#volume-cut')!.value === '0.3', 'Cutaway was not restored.');
+    assert(document.querySelector<HTMLInputElement>('#scene-cut')!.value === '.3' || document.querySelector<HTMLInputElement>('#scene-cut')!.value === '0.3', 'Cutaway was not restored.');
     assert(document.querySelector('#zoom-reset')!.textContent === zoom3D, '3D zoom was not restored.');
     assert(document.querySelector<HTMLInputElement>('#object-size')!.value === '2' && !document.querySelector<HTMLInputElement>('#show-floor')!.checked, 'Object size or floor visibility was lost.');
     await toggle();
