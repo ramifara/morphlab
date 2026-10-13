@@ -15,6 +15,12 @@ export interface SavedPreset {
   /** Small data URL captured from the field when saved. */
   art?: string;
   snapshotId?: string;
+  dimension?: '3d';
+  shape?: 'sphere' | 'box';
+  orbit?: { x: number; y: number };
+  cut?: number;
+  objectSize?: number;
+  showFloor?: boolean;
 }
 export type PresetDraft = Omit<SavedPreset, 'id' | 'createdAt'>;
 

@@ -43,3 +43,18 @@ describe('saved morph fields', () => {
     await expect(saveSnapshot(snapshot())).rejects.toThrow();
   });
 });
+
+describe('saved 3D scenes',()=>{
+  beforeEach(()=>{globalThis.indexedDB=new IDBFactory();});
+  it('keeps every object field and transform and rejects corrupt scene fields',async()=>{
+    const {defaultObject}=await import('./scene3d');
+    const n=64,width=n*8,height=n*n/8,field=new Float32Array(n**3*2);
+    const scene={selected:1,interaction:.7,objects:[{config:defaultObject(0),field:field.slice()},{config:defaultObject(1),field:field.slice()}]};
+    scene.objects[1].config.position=[1,.2,-1];scene.objects[1].field[37]=.63;
+    const save={version:1 as const,width,height,field:scene.objects[1].field,scene,iterations:23,zoom:1,pan:{x:0,y:0}};
+    const id=await saveSnapshot(save);const restored=await loadSnapshot(id,width,height);
+    expect(restored.scene?.objects[1].field[37]).toBeCloseTo(.63,6);expect(restored.scene?.objects[1].config.position).toEqual([1,.2,-1]);
+    scene.objects[0].field=new Float32Array(2);
+    const bad=await saveSnapshot(save);await expect(loadSnapshot(bad,width,height)).rejects.toThrow('incompatible');
+  });
+});
