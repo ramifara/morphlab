@@ -1,7 +1,9 @@
+import { parseSceneRecipe, type VolumeSceneSnapshot } from './scene3d';
 import type { View } from './model';
 
 export interface MorphSnapshot {
   version: 1;
+  scene?: VolumeSceneSnapshot;
   width: number;
   height: number;
   field: Float32Array;
@@ -45,6 +47,7 @@ export async function loadSnapshot(id: string, width: number, height: number): P
     || !snapshot.field.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
     || !Number.isSafeInteger(snapshot.iterations) || snapshot.iterations < 0
     || !Number.isFinite(snapshot.zoom) || snapshot.zoom <= 0
+    || (snapshot.scene && (!Array.isArray(snapshot.scene.objects) || !parseSceneRecipe({...snapshot.scene,objects:snapshot.scene.objects.map(object=>object?.config)}) || snapshot.scene.objects.some(object=>!(object.field instanceof Float32Array)||object.field.length!==width*height*2||!object.field.every(value=>Number.isFinite(value)&&value>=0&&value<=1))))
     || !Number.isFinite(snapshot.pan?.x) || !Number.isFinite(snapshot.pan?.y)) {
     throw new Error('The saved morph state is missing or incompatible.');
   }
